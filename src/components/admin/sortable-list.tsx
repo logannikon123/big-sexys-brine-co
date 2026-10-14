@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import {
   DndContext,
   closestCenter,
@@ -73,6 +73,7 @@ export function SortableList<T extends { id: number; sort_order: number }>({
   onReorder,
   renderItem,
 }: SortableListProps<T>) {
+  const dndId = useId();
   const [items, setItems] = useState(initialItems);
   const [saving, setSaving] = useState(false);
 
@@ -122,6 +123,7 @@ export function SortableList<T extends { id: number; sort_order: number }>({
         </div>
       )}
       <DndContext
+        id={dndId}
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
