@@ -211,8 +211,7 @@ big-sexys-brine-co/
 │   │   │
 │   │   ├── api/                         # API ROUTES (server-side endpoints)
 │   │   │   ├── contact/route.ts         # POST /api/contact — sends email via Resend
-│   │   │   ├── contest/route.ts         # POST /api/contest — saves to DB + sends email
-│   │   │   └── email/inbound/route.ts   # POST /api/email/inbound — Resend webhook
+│   │   │   └── contest/route.ts         # POST /api/contest — saves to DB + sends email
 │   │   │
 │   │   ├── layout.tsx                   # ROOT LAYOUT — fonts, metadata, <html> tag
 │   │   ├── globals.css                  # Global styles, brand colors, Tailwind theme
