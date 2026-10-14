@@ -1,8 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
+import { isAdmin } from "@/lib/supabase/is-admin";
 import { redirect } from "next/navigation";
 
 /**
- * Require an authenticated user. If no user is found, redirect to admin login.
+ * Require a signed-in admin. Anyone else is sent to the admin login page.
  * Use this in server components and server actions to enforce auth.
  */
 export async function requireAuth() {
@@ -11,7 +12,7 @@ export async function requireAuth() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  if (!user || !isAdmin(user)) {
     redirect("/admin/login");
   }
 
@@ -19,7 +20,7 @@ export async function requireAuth() {
 }
 
 /**
- * Require an authenticated user for server actions.
+ * Require a signed-in admin for server actions.
  * Throws an error instead of redirecting (since server actions can't redirect mid-execution).
  */
 export async function requireAuthAction() {
@@ -30,6 +31,10 @@ export async function requireAuthAction() {
 
   if (!user) {
     throw new Error("Unauthorized: You must be logged in to perform this action.");
+  }
+
+  if (!isAdmin(user)) {
+    throw new Error("Unauthorized: This account does not have admin access.");
   }
 
   return user;

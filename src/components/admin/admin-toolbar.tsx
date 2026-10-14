@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { isAdmin as isAdminUser } from "@/lib/supabase/is-admin";
 import {
   LayoutDashboard,
   ShoppingBasket,
@@ -52,14 +53,14 @@ export function AdminToolbar() {
 
     async function checkAuth() {
       const { data: { user } } = await supabase.auth.getUser();
-      setIsAdmin(!!user);
+      setIsAdmin(isAdminUser(user));
       setLoading(false);
     }
 
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAdmin(!!session?.user);
+      setIsAdmin(isAdminUser(session?.user));
     });
 
     return () => subscription.unsubscribe();

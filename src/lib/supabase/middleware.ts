@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { isAdmin } from "@/lib/supabase/is-admin";
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
@@ -28,20 +29,22 @@ export async function updateSession(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  const admin = isAdmin(user);
 
-  // Protect admin routes (except login)
+  // Protect admin routes (except login). Signed-in accounts without the
+  // admin tag are treated the same as signed-out visitors.
   if (
     request.nextUrl.pathname.startsWith("/admin") &&
     !request.nextUrl.pathname.startsWith("/admin/login") &&
-    !user
+    !admin
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/admin/login";
     return NextResponse.redirect(url);
   }
 
-  // Redirect logged-in users away from login page
-  if (request.nextUrl.pathname === "/admin/login" && user) {
+  // Redirect signed-in admins away from login page
+  if (request.nextUrl.pathname === "/admin/login" && admin) {
     const url = request.nextUrl.clone();
     url.pathname = "/admin";
     return NextResponse.redirect(url);
