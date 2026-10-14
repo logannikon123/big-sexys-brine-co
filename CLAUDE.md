@@ -161,6 +161,26 @@ git diff --cached | grep -nE '(^|[^A-Za-z])[A-Za-z]:[\\/]|/(Users|home)/'
 No output means the change is clean. If you find a leak before pushing, fix it and amend. If it was
 already pushed, tell Jesse and offer to rewrite the branch before merge.
 
+## Automatic checks on every pull request
+
+`main` is protected. A pull request can merge only when these checks pass. Vercel runs its own
+check; gitleaks and trivy are jobs in `.github/workflows/ci.yml`. The repo is public, so anyone can
+see these runs and their logs. Never print secrets or `.env` values in a workflow.
+
+| Check | What it does |
+|---|---|
+| **Vercel** | Builds the site and makes a preview copy. |
+| **gitleaks** | Scans every commit for leaked keys, tokens and passwords. |
+| **trivy** | Scans the libraries the site uses for known security holes, plus secrets and risky settings. Fails on HIGH or CRITICAL problems that have a fix. |
+
+If a check fails, fix the cause in the same branch. Never turn a check off or skip it to get a merge
+through. If a trivy finding truly can't be fixed yet, explain it to Jesse and get his approval before
+adding it to a `.trivyignore` file with a comment saying why.
+
+GitHub's own secret scanning and push protection are also on, and Dependabot opens pull requests for
+security fixes and weekly library updates (see `.github/dependabot.yml`). Treat Dependabot pull
+requests like any other: checks must pass, and Jesse approves the merge.
+
 ## Secrets and environment
 
 - Local settings live in `.env.local`. `.gitignore` ignores every `.env*` file except `.env.example`.
