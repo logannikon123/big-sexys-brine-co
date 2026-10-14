@@ -4,11 +4,20 @@ interface JsonLdProps {
   data: Record<string, unknown>;
 }
 
+const SITE_URL = "https://bigsexysbrine.co";
+
+/** Supabase images are already full URLs; only local paths need the site prefix. */
+function absoluteUrl(path: string) {
+  return /^https?:\/\//.test(path) ? path : `${SITE_URL}${path}`;
+}
+
 export function JsonLd({ data }: JsonLdProps) {
+  // Escape "<" so admin-entered text containing "</script>" can't break out of the tag.
+  const json = JSON.stringify(data).replace(/</g, "\\u003c");
   return (
     <script
       type="application/ld+json"
-      dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }}
+      dangerouslySetInnerHTML={{ __html: json }}
     />
   );
 }
@@ -52,7 +61,7 @@ export function ProductJsonLd({ product }: { product: Product }) {
         "@type": "Product",
         name: product.name,
         description: product.description,
-        image: `https://bigsexysbrine.co${product.image}`,
+        image: absoluteUrl(product.image),
         brand: {
           "@type": "Brand",
           name: "Big Sexy's Brine Co.",
