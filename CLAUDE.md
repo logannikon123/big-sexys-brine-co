@@ -288,9 +288,12 @@ Security findings from the October 2026 review that are still open:
    row-level security policies). New sign-ups are now turned off in Supabase, but the code still needs
    an admin allow-list.
 2. Rich text from the admin is shown without being cleaned first (`src/components/ui/rich-text-content.tsx`).
-3. The inbound email webhook does not check Resend's signature (`src/app/api/email/inbound/route.ts`).
 
 Other known issues:
 
+- The inbound email hook (`src/app/api/email/inbound/route.ts`) was removed in October 2026. It had
+  no signature check, and it never worked: the domain has no MX records, so no mail reached it. To
+  forward mail sent to @bigsexysbrine.co addresses to Gmail, set up MX records and Resend inbound
+  first, then add a hook that checks Resend's signature before it trusts anything.
 - Product photos in Supabase Storage are 11 to 17 MB each. The admin uploader should shrink images
   before upload.
