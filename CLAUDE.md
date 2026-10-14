@@ -1,0 +1,203 @@
+# CLAUDE.md
+
+Standing instructions for any Claude session working on this repo. Read this file in full before you
+touch anything. These rules come from the owner and override your defaults.
+
+## Who you are working with
+
+- **Jesse Thompson** owns Big Sexy's Brine Co and this repo. He is a beginner coder. Explain what you
+  do in plain English, and say why before you say how.
+- **Nick Kulavic** built the site and advises on it.
+- Act as a careful senior engineer: small changes, tested before review, nothing reaches the live site
+  without Jesse's approval.
+
+## The project in one paragraph
+
+This is the code for **bigsexysbrine.co**, a catalog site for a small-batch pickle company. It is a
+Next.js 16 (App Router) app with React 19 and Tailwind 4. Content (products, events, testimonials,
+gallery, class info) lives in **Supabase** (Postgres, Auth, Storage) and is edited by admins at
+`/admin`. Email goes out through **Resend**. **Vercel** hosts the site and deploys it from GitHub.
+`README.md` has the full architecture tour. `agents.md` has older notes and is partly out of date (it
+says npm; this repo uses **pnpm**).
+
+## Non-negotiable rules
+
+### 1. Never commit to `main`
+
+Never commit to `main`, never push to `main`, and never force-push any shared branch. Every change,
+however small, goes through a pull request.
+
+### 2. Always work in a git worktree
+
+Never edit files in the `main` checkout. The repo lives in one folder with the `main` checkout and the
+worktrees side by side:
+
+```
+big-sexys-brine-co/
+├── main/                     main branch only: pull updates here, never edit
+└── worktrees/
+    ├── docs-claude-md/       branch docs/claude-md
+    └── fix-image-uploads/    branch fix/image-uploads
+```
+
+Before your first edit, create a worktree on a new branch cut from the latest `origin/main`. Name the
+folder after the branch, with the slash turned into a dash. From the `main` folder:
+
+```bash
+git fetch origin
+git worktree add ../worktrees/<type>-<short-name> -b <type>/<short-name> origin/main
+```
+
+Branch types: `feature/`, `fix/`, `docs/`, `chore/`, `db/`. Do all work, tests and commits inside that
+worktree. Run `pnpm install` there before the first build. Keep worktrees out of the `main` folder:
+`tsconfig.json` includes every `.ts` file under the project, so a worktree nested inside `main` gets
+type-checked by every build.
+
+If the Claude desktop app started your session in its own worktree under `.claude/worktrees/`, you
+may work there, but never create new worktrees in that location yourself.
+
+After the pull request is merged, remove the worktree and update `main`:
+
+```bash
+git worktree remove ../worktrees/<type>-<short-name>
+git pull --ff-only
+```
+
+### 3. Deploys happen only by merging a pull request into `main`
+
+Vercel builds a preview for each pull request and deploys production when `main` changes. That is the
+only deploy path.
+
+- Never run `vercel deploy`, `vercel --prod` or `vercel promote` from a local machine.
+- Run `vercel redeploy` only when Jesse asks for it by name (for example, after he changes an
+  environment variable in Vercel).
+
+### 4. Squash merge only, and only with Jesse's approval
+
+Merge with `gh pr merge <number> --squash --delete-branch`. Never use a merge commit or a rebase merge.
+Never merge until Jesse says so in chat for that specific pull request.
+
+### 5. Jesse validates feature changes locally before review
+
+For any change a visitor or admin could notice:
+
+1. Run `pnpm exec eslint <changed files>` and `pnpm build` in the worktree. Both must pass.
+2. Start the dev server from the worktree (`pnpm dev`) and check the change yourself in the browser.
+3. Show Jesse the change running on localhost and wait for his approval.
+4. Only then open the pull request (or mark it ready for review).
+
+Docs-only and config-only changes skip steps 2 and 3, but still need step 1 if they touch code.
+
+### 6. Every database change goes through a migration file
+
+- Create the file with `supabase migration new <name>`. It lands in `supabase/migrations/`.
+- Never change the schema, row-level security policies, functions or storage policies by hand: not in
+  the Supabase dashboard, not with `supabase db query`, not with any SQL tool.
+- Keep `supabase/schema.sql` in step with the migrations so it still describes the whole database.
+- Apply a migration to the live database (`supabase db push`) only after its pull request is approved,
+  and tell Jesse before you run it.
+- Read-only queries for checking things (`supabase db query --linked "select ..."`) are fine.
+- Never run `supabase config push` with the repo's `supabase/config.toml`. That file holds local
+  development values (like `site_url = http://127.0.0.1:3000`) that would overwrite live settings.
+
+**Known gap, fix before the first new migration:** as of October 2026 the live database's migration
+history is empty, even though the three files in `supabase/migrations/` were applied by hand. The
+`contest_entries` table is not in any migration at all. Before anyone runs `supabase db push`, a
+one-time baseline has to happen in its own pull request: confirm each migration's changes exist live,
+mark them applied with `supabase migration repair --status applied <version>`, and add a migration
+that captures `contest_entries` as it exists today. Get Jesse's approval for that plan first.
+
+### 7. Pull request descriptions are written for a beginner
+
+Write each description so Jesse can understand it without reading the code. Use these sections:
+
+- **What this changes:** one or two plain sentences.
+- **Why:** the problem it solves.
+- **What you will see:** what changes for a visitor or an admin, if anything.
+- **How it was tested:** lint, build, local check, and anything else you ran.
+- **Risks and how to undo it:** what could go wrong and how to roll it back.
+
+Explain technical terms the first time you use them. Be detailed, but leave out code-level detail
+Jesse does not need in order to decide.
+
+**Diagrams:** if a pull request changes the database or changes how the site flows (pages, forms, sign
+in, email, data moving between the site, Supabase, Resend or Vercel), include a Mermaid diagram that
+shows the change. A before and after pair works well. GitHub draws these from a fenced block marked
+`mermaid`.
+
+### 8. Writing style: Orwell's six rules, and no em dashes
+
+Everything you write for people follows George Orwell's six rules from "Politics and the English
+Language" (1946). That covers pull requests, commit messages, code comments, docs, UI text and chat
+replies. In short:
+
+1. Don't use a figure of speech you're used to seeing in print. Find a fresh one, or say it plainly.
+2. Don't use a long word where a short one will do.
+3. If you can cut a word, cut it.
+4. Use the active voice wherever you can.
+5. Don't use a foreign phrase, scientific word or jargon if an everyday English word will do.
+6. Break any of these rules sooner than write something awkward or ugly.
+
+**Never use em dashes.** Use a comma, colon, period or parentheses instead.
+
+### 9. No machine paths or personal details in anything that leaves the computer
+
+This repo is public. Anything in a commit, commit message, branch name, pull request or comment is
+visible to everyone and stays in the history.
+
+- Use paths relative to the repo: `src/lib/data.ts`, `../worktrees/fix-image-uploads`, `main/`.
+- Never write an absolute local path (a Windows path that starts with a drive letter and a colon, or
+  a Mac or Linux home folder path), a computer user name, or a home folder.
+- Never write personal details that aren't already public on the site: phone numbers, personal
+  emails, addresses, account numbers.
+
+Before every commit and every pull request, check the staged changes, the commit message and the
+pull request text. From the worktree:
+
+```bash
+git diff --cached | grep -nE '(^|[^A-Za-z])[A-Za-z]:[\\/]|/(Users|home)/'
+```
+
+No output means the change is clean. If you find a leak before pushing, fix it and amend. If it was
+already pushed, tell Jesse and offer to rewrite the branch before merge.
+
+## Secrets and environment
+
+- Local settings live in `.env.local`. `.gitignore` ignores every `.env*` file except `.env.example`.
+  Never weaken that rule, never commit a real `.env` file, and never print secret values in chat,
+  logs, commits or pull requests. This repo is public, so anything committed is visible to everyone.
+- `.env.example` is committed on purpose and holds placeholders only. When you add a new setting, add
+  its name to `.env.example` with a placeholder value, never the real one.
+- `SUPABASE_SERVICE_ROLE_KEY` bypasses all database security. Use it only in server code that needs it
+  (today, only `src/app/api/contest/route.ts`), and never in anything sent to the browser.
+- Production values are set in Vercel. Change them there, then ask Jesse whether to redeploy.
+
+## Commands
+
+| Task | Command |
+|---|---|
+| Install packages | `pnpm install` |
+| Run locally | `pnpm dev` (http://localhost:3000) |
+| Check code style | `pnpm exec eslint <files>` |
+| Production build | `pnpm build` |
+| Open a pull request | `gh pr create --base main` |
+| Merge (after approval) | `gh pr merge <number> --squash --delete-branch` |
+| New migration | `supabase migration new <name>` |
+| Read-only database check | `supabase db query --linked "select ..."` |
+
+## Open items to know about
+
+Security findings from the October 2026 review that are still open:
+
+1. Any logged-in Supabase user counts as an admin (`src/lib/supabase/auth-guard.ts` and the
+   row-level security policies). New sign-ups are now turned off in Supabase, but the code still needs
+   an admin allow-list.
+2. Rich text from the admin is shown without being cleaned first (`src/components/ui/rich-text-content.tsx`).
+3. The inbound email webhook does not check Resend's signature (`src/app/api/email/inbound/route.ts`).
+
+Other known issues:
+
+- Product photos in Supabase Storage are 11 to 17 MB each. The admin uploader should shrink images
+  before upload.
+- The Supabase Auth "Site URL" is set to `http://localhost:3000` and should be
+  `https://bigsexysbrine.co`.
