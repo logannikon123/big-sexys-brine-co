@@ -143,42 +143,53 @@ CREATE POLICY "Public read testimonials" ON testimonials FOR SELECT USING (true)
 CREATE POLICY "Public read class_info" ON class_info FOR SELECT USING (true);
 CREATE POLICY "Public read gallery_images" ON gallery_images FOR SELECT USING (true);
 
--- Authenticated users get full CRUD
-CREATE POLICY "Admin insert categories" ON categories FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Admin update categories" ON categories FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Admin delete categories" ON categories FOR DELETE TO authenticated USING (true);
-
-CREATE POLICY "Admin insert products" ON products FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Admin update products" ON products FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Admin delete products" ON products FOR DELETE TO authenticated USING (true);
-
-CREATE POLICY "Admin insert product_categories" ON product_categories FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Admin delete product_categories" ON product_categories FOR DELETE TO authenticated USING (true);
-
-CREATE POLICY "Admin insert events" ON events FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Admin update events" ON events FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Admin delete events" ON events FOR DELETE TO authenticated USING (true);
-
-CREATE POLICY "Admin insert testimonials" ON testimonials FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Admin update testimonials" ON testimonials FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Admin delete testimonials" ON testimonials FOR DELETE TO authenticated USING (true);
-
-CREATE POLICY "Admin update class_info" ON class_info FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Admin insert class_info" ON class_info FOR INSERT TO authenticated WITH CHECK (true);
-
-CREATE POLICY "Admin insert gallery_images" ON gallery_images FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Admin update gallery_images" ON gallery_images FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Admin delete gallery_images" ON gallery_images FOR DELETE TO authenticated USING (true);
-
 CREATE POLICY "Public read access" ON product_images FOR SELECT USING (true);
-CREATE POLICY "Authenticated users can manage product images" ON product_images
-  FOR ALL USING (auth.role() = 'authenticated');
 
-CREATE POLICY "Anyone can submit contest entries" ON contest_entries FOR INSERT WITH CHECK (true);
-CREATE POLICY "Authenticated users can read contest entries" ON contest_entries
-  FOR SELECT USING (auth.role() = 'authenticated');
-CREATE POLICY "Authenticated users can delete contest entries" ON contest_entries
-  FOR DELETE USING (auth.role() = 'authenticated');
+-- Admins only: accounts with app_metadata.role = "admin". Only the Supabase
+-- dashboard or the service role key can set app_metadata.
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = ''
+AS $$
+  SELECT coalesce((auth.jwt() -> 'app_metadata' ->> 'role') = 'admin', false);
+$$;
+
+CREATE POLICY "Admin insert categories" ON categories FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update categories" ON categories FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete categories" ON categories FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+CREATE POLICY "Admin insert products" ON products FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update products" ON products FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete products" ON products FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+CREATE POLICY "Admin insert product_categories" ON product_categories FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete product_categories" ON product_categories FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+CREATE POLICY "Admin insert events" ON events FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update events" ON events FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete events" ON events FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+CREATE POLICY "Admin insert testimonials" ON testimonials FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update testimonials" ON testimonials FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete testimonials" ON testimonials FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+CREATE POLICY "Admin insert class_info" ON class_info FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update class_info" ON class_info FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+
+CREATE POLICY "Admin insert gallery_images" ON gallery_images FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update gallery_images" ON gallery_images FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete gallery_images" ON gallery_images FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+CREATE POLICY "Admin insert product_images" ON product_images FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update product_images" ON product_images FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete product_images" ON product_images FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+-- Contest entries hold names and emails. The contest form saves with the
+-- service role key, which skips these rules, so there is no public insert rule.
+CREATE POLICY "Admin read contest entries" ON contest_entries FOR SELECT TO authenticated USING ((select public.is_admin()));
+CREATE POLICY "Admin delete contest entries" ON contest_entries FOR DELETE TO authenticated USING ((select public.is_admin()));
 
 -- Default categories
 INSERT INTO categories (name, slug, sort_order) VALUES
@@ -194,3 +205,10 @@ ON CONFLICT (name) DO NOTHING;
 -- Storage bucket for images
 -- Run this separately in the Supabase dashboard or via the API:
 -- INSERT INTO storage.buckets (id, name, public) VALUES ('images', 'images', true);
+
+-- Storage rules for the images bucket
+CREATE POLICY "Public read images" ON storage.objects FOR SELECT USING (bucket_id = 'images');
+CREATE POLICY "Admin upload images" ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (bucket_id = 'images' AND (select public.is_admin()));
+CREATE POLICY "Admin delete images" ON storage.objects FOR DELETE TO authenticated
+  USING (bucket_id = 'images' AND (select public.is_admin()));
