@@ -7,7 +7,6 @@ import { ProductJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { ProductImageCarousel } from "@/components/products/ProductImageCarousel";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";

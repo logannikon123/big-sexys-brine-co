@@ -231,7 +231,7 @@ export function CategoriesManager({
           sort_order: index,
         }));
         await updateCategoryOrder(updates);
-      } catch (err) {
+      } catch {
         setCategories(categories);
         toast.error("Failed to save order");
       } finally {
