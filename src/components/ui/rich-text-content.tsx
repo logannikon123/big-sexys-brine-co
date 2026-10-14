@@ -1,9 +1,36 @@
+import sanitizeHtml from "sanitize-html";
 import { cn } from "@/lib/utils";
 
 interface RichTextContentProps {
   html: string;
   className?: string;
 }
+
+/**
+ * Keep only what the admin editor (src/components/admin/rich-text-editor.tsx)
+ * can make. Anything else, such as scripts, event handlers, iframes or
+ * "javascript:" links, is removed before it reaches a visitor's browser.
+ */
+const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: [
+    "p", "br", "strong", "b", "em", "i", "u", "s", "del",
+    "h1", "h2", "h3", "ul", "ol", "li", "blockquote", "a",
+  ],
+  allowedAttributes: {
+    a: ["href", "target", "rel", "class"],
+  },
+  allowedSchemes: ["http", "https", "mailto", "tel"],
+  transformTags: {
+    // A link that opens a new tab must not give that tab control of ours.
+    a: (tagName, attribs) => ({
+      tagName,
+      attribs:
+        attribs.target === "_blank"
+          ? { ...attribs, rel: "noopener noreferrer nofollow" }
+          : attribs,
+    }),
+  },
+};
 
 /**
  * Renders HTML content from the WYSIWYG editor on the public frontend.
@@ -17,7 +44,7 @@ export function RichTextContent({ html, className }: RichTextContentProps) {
 
   // Check if content contains HTML tags
   const isHTML = /<[a-z][\s\S]*>/i.test(html);
-  const content = isHTML ? html : `<p>${html}</p>`;
+  const content = sanitizeHtml(isHTML ? html : `<p>${html}</p>`, SANITIZE_OPTIONS);
 
   return (
     <div

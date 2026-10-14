@@ -287,7 +287,6 @@ Security findings from the October 2026 review that are still open:
 1. Any logged-in Supabase user counts as an admin (`src/lib/supabase/auth-guard.ts` and the
    row-level security policies). New sign-ups are now turned off in Supabase, but the code still needs
    an admin allow-list.
-2. Rich text from the admin is shown without being cleaned first (`src/components/ui/rich-text-content.tsx`).
 
 Other known issues:
 
