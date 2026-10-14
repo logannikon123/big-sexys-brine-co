@@ -282,11 +282,25 @@ sign out, and never sign in to a different account.
 
 ## Open items to know about
 
-Security findings from the October 2026 review that are still open:
+All three security findings from the October 2026 review are fixed: the inbound email hook was
+removed (#28), rich text is cleaned before display (#29), and only tagged admins can use the admin
+(#31 for the site's code, #34 for the database rules).
 
-1. Any logged-in Supabase user counts as an admin (`src/lib/supabase/auth-guard.ts` and the
-   row-level security policies). New sign-ups are now turned off in Supabase, but the code still needs
-   an admin allow-list.
+How admin access works:
+
+- An account is an admin only if it carries the tag `app_metadata.role = "admin"`. The site checks
+  it in `src/lib/supabase/is-admin.ts`, and the database checks it in `public.is_admin()`, which
+  every write rule uses. Signing in is not enough.
+- Only the Supabase dashboard or the service role key can change `app_metadata`, so users can't
+  tag themselves. New sign-ups are turned off in Supabase. Leave them off.
+- To add an admin: create the user in the Supabase dashboard (Authentication, Users), then set the
+  tag. This is a change to a live account, so get Jesse's OK first. One way:
+  `supabase db query --linked "update auth.users set raw_app_meta_data = raw_app_meta_data || '{\"role\":\"admin\"}'::jsonb where email = '<email>'"`.
+  To remove one, delete the `role` key the same way.
+- The tag travels in the sign-in token, which renews about once an hour. After adding or removing
+  a tag, the person should sign out and back in.
+- A new table that admins write to needs its own rules using `(select public.is_admin())`, written
+  in a migration. Copy the pattern in `supabase/migrations/20261014061425_admin_only_rules.sql`.
 
 Other known issues:
 
