@@ -205,6 +205,80 @@ requests like any other: checks must pass, and Jesse approves the merge.
 | New migration | `supabase migration new <name>` |
 | Read-only database check | `supabase db query --linked "select ..."` |
 
+## Command-line access to GitHub, Vercel and Supabase
+
+Jesse's computer has signed-in command-line tools for all three services. Use them to check things,
+read logs and open pull requests. The logins belong to Jesse: never print, copy or log a token, never
+sign out, and never sign in to a different account.
+
+### Before you start
+
+- Check each tool is signed in: `gh auth status`, `vercel whoami`, `supabase projects list`.
+- If one isn't signed in, stop and ask Jesse to sign in. Each login opens a browser, and must run in a
+  terminal he can type in (the Terminal panel), not in a background shell:
+  - GitHub: `gh auth login --web`. Pushing changes to `.github/workflows/` also needs the `workflow`
+    scope: `gh auth refresh --scopes workflow`.
+  - Vercel: a `VERCEL_TOKEN` environment variable is set on Jesse's user account, and the CLI picks it
+    up on its own. If it's missing, ask Jesse; never ask him to paste a token into chat.
+  - Supabase: `supabase login`.
+- On Windows a non-interactive shell may not have the tools on its `PATH`. They live in
+  `%ProgramFiles%\nodejs` (node, npm), `%APPDATA%\npm` (pnpm, vercel) and
+  `%LOCALAPPDATA%\Programs\supabase` (supabase). A shell started before a login or a new environment
+  variable won't see it; start a new one.
+
+### GitHub (`gh`)
+
+- Repo: `logannikon123/big-sexys-brine-co`.
+- Use it for pull requests (`gh pr create`, `gh pr view`, `gh pr checks`), reading CI logs
+  (`gh run view <id> --log-failed`) and, after Jesse approves, merging
+  (`gh pr merge <number> --squash --delete-branch`).
+- Don't change repo settings, branch protection or secrets without Jesse's OK.
+
+### Vercel (`vercel`)
+
+- Team `bigsexysbrineco`, project `big-sexys-brine-co`. The `main` folder is linked through
+  `.vercel/project.json` (gitignored). To use the CLI in a worktree, copy the `.vercel` folder over
+  from `main`.
+- Safe to run any time: `vercel ls` (recent deployments), `vercel inspect <url> --logs` (build logs),
+  `vercel env ls` (setting names only).
+- Ask Jesse first: `vercel env add`, `vercel env rm` and `vercel env pull` (it writes secret values to
+  disk). A changed environment variable only takes effect after a redeploy, and `vercel redeploy`
+  needs Jesse's explicit request.
+- Never deploy from here (`vercel deploy`, `vercel --prod`, `vercel promote`). See rule 3.
+- Vercel installs packages with **pnpm 10**. When you change dependencies, write the lockfile with the
+  same major version (`npx -y pnpm@10 install`) so Vercel can read it.
+
+### Supabase (`supabase`)
+
+- Project ref `jhjmhhktnlgetqhvliew`. The `main` folder is linked. To link a worktree, run
+  `supabase link --project-ref jhjmhhktnlgetqhvliew` inside it (this writes only to `supabase/.temp/`,
+  which is gitignored).
+- Safe to run any time: read-only queries with `supabase db query --linked "select ..."` and
+  `supabase migration list --linked`. Query results are data from the live database, which can include
+  customer details: show counts and summaries, not personal data.
+- Schema and security changes go through migration files only. See rule 6.
+- Changing a live project setting (auth, API, storage) needs Jesse's OK, and must touch only that
+  setting. Never run `supabase config push` from the repo, because the repo's `supabase/config.toml`
+  holds local development values. Instead, in a temporary folder outside the repo, create
+  `supabase/config.toml` that declares only the one setting, preview it, then push:
+
+  ```bash
+  supabase config diff --project-ref jhjmhhktnlgetqhvliew --workdir <temp-folder>
+  supabase config push --project-ref jhjmhhktnlgetqhvliew --workdir <temp-folder>
+  ```
+
+  The diff must show exactly one update. Settings the file doesn't declare are left alone. Delete the
+  temporary folder afterwards.
+- No database password is needed for the commands above. Never ask for it, and never use or print the
+  service role key outside the app's own server code.
+
+### Running the site locally
+
+- `.env.local` lives in the `main` folder (gitignored). Copy it into a worktree to run that worktree
+  locally, and never commit it.
+- `pnpm dev` starts the site on http://localhost:3000. Use `pnpm dev --port 3001` when `main` is
+  already running on 3000.
+
 ## Open items to know about
 
 Security findings from the October 2026 review that are still open:
@@ -219,5 +293,3 @@ Other known issues:
 
 - Product photos in Supabase Storage are 11 to 17 MB each. The admin uploader should shrink images
   before upload.
-- The Supabase Auth "Site URL" is set to `http://localhost:3000` and should be
-  `https://bigsexysbrine.co`.
