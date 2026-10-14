@@ -40,3 +40,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# claude code (local worktrees and machine-specific settings)
+.claude/worktrees/
+.claude/launch.json
+.claude/settings.local.json
