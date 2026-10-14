@@ -290,9 +290,15 @@ Security findings from the October 2026 review that are still open:
 
 Other known issues:
 
-- The inbound email hook (`src/app/api/email/inbound/route.ts`) was removed in October 2026. It had
-  no signature check, and it never worked: the domain has no MX records, so no mail reached it. To
-  forward mail sent to @bigsexysbrine.co addresses to Gmail, set up MX records and Resend inbound
-  first, then add a hook that checks Resend's signature before it trusts anything.
+- Mail sent to any @bigsexysbrine.co address forwards to the business Gmail through ImprovMX (free
+  plan, catch-all alias, Jesse's account). Its records live in Vercel DNS on the root domain: two MX
+  records (`mx1.improvmx.com` and `mx2.improvmx.com`) and an SPF TXT record. Don't remove them. To
+  test forwarding, send from an account other than the business Gmail, because Gmail hides mail you
+  send to yourself.
+- The old inbound email hook (`src/app/api/email/inbound/route.ts`) was removed in October 2026. It
+  had no signature check and never received mail. ImprovMX does that job now, so don't bring it back.
+- Resend, which sends the contact and contest form emails, is Nick's account. As of October 2026 the
+  two Resend records on `send.bigsexysbrine.co` (an MX record and an SPF TXT record) are missing from
+  Vercel DNS. Resend's DKIM record is present, so mail still goes out. Ask Nick for the two values.
 - Product photos in Supabase Storage are 11 to 17 MB each. The admin uploader should shrink images
   before upload.
