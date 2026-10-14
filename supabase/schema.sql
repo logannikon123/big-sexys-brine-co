@@ -83,6 +83,26 @@ CREATE TABLE IF NOT EXISTS gallery_images (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Product images table (multi-image gallery per product)
+CREATE TABLE IF NOT EXISTS product_images (
+  id SERIAL PRIMARY KEY,
+  product_id INTEGER NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  url TEXT NOT NULL,
+  alt TEXT,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  is_primary BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Contest entries table (written by /api/contest with the service role key)
+CREATE TABLE IF NOT EXISTS contest_entries (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  pun TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Updated_at trigger for products
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -101,6 +121,7 @@ CREATE TRIGGER products_updated_at
 CREATE INDEX IF NOT EXISTS idx_product_categories_product ON product_categories(product_id);
 CREATE INDEX IF NOT EXISTS idx_product_categories_category ON product_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_events_is_recurring ON events(is_recurring);
+CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);
 
 -- Row Level Security
 ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
@@ -110,6 +131,8 @@ ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE testimonials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE class_info ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gallery_images ENABLE ROW LEVEL SECURITY;
+ALTER TABLE product_images ENABLE ROW LEVEL SECURITY;
+ALTER TABLE contest_entries ENABLE ROW LEVEL SECURITY;
 
 -- Public read access (for the website)
 CREATE POLICY "Public read categories" ON categories FOR SELECT USING (true);
@@ -146,6 +169,16 @@ CREATE POLICY "Admin insert class_info" ON class_info FOR INSERT TO authenticate
 CREATE POLICY "Admin insert gallery_images" ON gallery_images FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "Admin update gallery_images" ON gallery_images FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
 CREATE POLICY "Admin delete gallery_images" ON gallery_images FOR DELETE TO authenticated USING (true);
+
+CREATE POLICY "Public read access" ON product_images FOR SELECT USING (true);
+CREATE POLICY "Authenticated users can manage product images" ON product_images
+  FOR ALL USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Anyone can submit contest entries" ON contest_entries FOR INSERT WITH CHECK (true);
+CREATE POLICY "Authenticated users can read contest entries" ON contest_entries
+  FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can delete contest entries" ON contest_entries
+  FOR DELETE USING (auth.role() = 'authenticated');
 
 -- Default categories
 INSERT INTO categories (name, slug, sort_order) VALUES
