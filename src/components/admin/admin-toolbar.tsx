@@ -11,8 +11,7 @@ import {
   CalendarDays,
   MessageSquareQuote,
   GraduationCap,
-  Image,
-  LogOut,
+  Image as ImageIcon,
   Pencil,
   ChevronRight,
 } from "lucide-react";
@@ -32,7 +31,7 @@ function getContextualLinks(pathname: string) {
     return { label: "Edit Class Info", href: "/admin/class", icon: GraduationCap };
   }
   if (pathname === "/gallery") {
-    return { label: "Edit Gallery", href: "/admin/gallery", icon: Image };
+    return { label: "Edit Gallery", href: "/admin/gallery", icon: ImageIcon };
   }
   if (pathname === "/about") {
     return { label: "Dashboard", href: "/admin", icon: LayoutDashboard };
@@ -79,7 +78,6 @@ export function AdminToolbar() {
   if (loading || !isAdmin) return null;
 
   const contextual = getContextualLinks(pathname);
-  const ContextIcon = contextual.icon;
 
   return (
     <div className="fixed top-0 left-0 right-0 z-[9999] bg-zinc-900 border-b border-zinc-700 text-zinc-300 text-sm h-10 flex items-center px-4 shadow-lg">
@@ -138,7 +136,7 @@ export function AdminToolbar() {
           href="/admin/gallery"
           className="flex items-center gap-1 px-2 py-1 rounded hover:bg-zinc-800 hover:text-white transition-colors"
         >
-          <Image className="w-3.5 h-3.5" />
+          <ImageIcon className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Gallery</span>
         </Link>
       </div>

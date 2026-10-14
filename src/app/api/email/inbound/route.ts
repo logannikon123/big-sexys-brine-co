@@ -18,7 +18,6 @@ export async function POST(request: NextRequest) {
       subject,
       text,
       html,
-      headers,
     } = payload;
 
     // Extract sender info

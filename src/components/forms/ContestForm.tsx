@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { Send, CheckCircle, AlertCircle, Loader2, Trophy } from "lucide-react";
+import { Send, AlertCircle, Loader2, Trophy } from "lucide-react";
 
 const contestSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
