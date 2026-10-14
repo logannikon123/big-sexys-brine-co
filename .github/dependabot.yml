@@ -1,0 +1,23 @@
+# Dependabot opens pull requests to keep libraries up to date.
+# Security fixes arrive as soon as GitHub knows about them; routine updates come once a week,
+# grouped into one pull request per kind so the list stays short.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
