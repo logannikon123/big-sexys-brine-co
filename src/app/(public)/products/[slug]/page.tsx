@@ -10,6 +10,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { toPlainText } from "@/lib/plain-text";
 
 // Revalidate every 60 seconds — ensures revalidatePath() from admin
 // actions actually busts the edge cache for these pages.
@@ -30,12 +31,14 @@ export async function generateMetadata({
   const { slug } = await params;
   const product = await getProductBySlug(slug);
   if (!product) return { title: "Product Not Found" };
+  // Search results and link previews show plain text, not formatting.
+  const description = toPlainText(product.description, 160);
   return {
     title: product.name,
-    description: product.description,
+    description,
     openGraph: {
       title: `${product.name} | Big Sexy's Brine Co.`,
-      description: product.description,
+      description,
       images: [{ url: product.image }],
     },
   };
