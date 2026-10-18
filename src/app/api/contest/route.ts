@@ -30,6 +30,11 @@ export async function POST(request: NextRequest) {
 
     if (dbError) {
       console.error("Failed to save contest entry to database:", dbError);
+      // Without a saved entry there's no record of it, so ask the visitor to try again.
+      return NextResponse.json(
+        { error: "Failed to submit entry" },
+        { status: 500 }
+      );
     }
 
     // Then send email notification
@@ -49,13 +54,19 @@ export async function POST(request: NextRequest) {
           replyTo: email,
         });
 
-        console.log("Resend email result:", JSON.stringify(emailResult));
+        // Resend reports a refused email in `error` instead of throwing. The entry
+        // is already saved, so the visitor still gets a success message.
+        if (emailResult.error) {
+          console.error("Resend did not send the contest email:", emailResult.error);
+        } else {
+          console.log("Contest email sent:", emailResult.data?.id);
+        }
       } catch (emailError) {
         console.error("Failed to send contest email via Resend:", emailError);
         // Don't fail the request — the entry is already saved in the database
       }
     } else {
-      console.log("Contest entry (no RESEND_API_KEY):", { name, email, pun });
+      console.warn("Contest form: RESEND_API_KEY is not set, so no email went out. The entry is saved.");
     }
 
     return NextResponse.json({ success: true });
