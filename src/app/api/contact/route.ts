@@ -38,7 +38,16 @@ export async function POST(request: NextRequest) {
           replyTo: email,
         });
 
-        console.log("Resend contact email result:", JSON.stringify(emailResult));
+        // Resend reports a refused email in `error` instead of throwing.
+        if (emailResult.error) {
+          console.error("Resend did not send the contact email:", emailResult.error);
+          return NextResponse.json(
+            { error: "Failed to send message" },
+            { status: 500 }
+          );
+        }
+
+        console.log("Contact email sent:", emailResult.data?.id);
       } catch (emailError) {
         console.error("Failed to send contact email via Resend:", emailError);
         return NextResponse.json(
@@ -47,7 +56,12 @@ export async function POST(request: NextRequest) {
         );
       }
     } else {
-      console.log("Contact form submission (no RESEND_API_KEY):", { name, email, subject, message });
+      // Contact messages aren't stored anywhere else, so without email they'd be lost.
+      console.error("Contact form: RESEND_API_KEY is not set, so the message was not sent.");
+      return NextResponse.json(
+        { error: "Failed to send message" },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({ success: true });
