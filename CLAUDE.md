@@ -100,12 +100,11 @@ Docs-only and config-only changes skip steps 2 and 3, but still need step 1 if t
 - Never run `supabase config push` with the repo's `supabase/config.toml`. That file holds local
   development values (like `site_url = http://127.0.0.1:3000`) that would overwrite live settings.
 
-**Known gap, fix before the first new migration:** as of October 2026 the live database's migration
-history is empty, even though the three files in `supabase/migrations/` were applied by hand. The
-`contest_entries` table is not in any migration at all. Before anyone runs `supabase db push`, a
-one-time baseline has to happen in its own pull request: confirm each migration's changes exist live,
-mark them applied with `supabase migration repair --status applied <version>`, and add a migration
-that captures `contest_entries` as it exists today. Get Jesse's approval for that plan first.
+**Migration history:** the live history was set straight in October 2026 (#32). Every file in
+`supabase/migrations/` is marked applied on the live database, so `supabase db push` applies only
+new files. Before a real push, run `supabase db push --linked --dry-run` and check it lists only the
+file you expect. If it lists older files, stop and ask Jesse: running them again could undo live
+changes (the first migration renumbers every product's sort order).
 
 ### 7. Pull request descriptions are written for a beginner
 
