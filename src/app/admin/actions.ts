@@ -158,42 +158,16 @@ export async function createProduct(data: {
     productData.image_url = primary.url;
   }
 
-  const { data: maxOrder } = await supabase
-    .from("products")
-    .select("sort_order")
-    .order("sort_order", { ascending: false })
-    .limit(1)
-    .single();
-  const sort_order = (maxOrder?.sort_order ?? -1) + 1;
-
-  const { data: inserted, error } = await supabase
-    .from("products")
-    .insert({ ...productData, sort_order })
-    .select("id")
-    .single();
+  // One database call saves the product, its categories and its photos
+  // together (see the save_product migration), so a failure can't leave
+  // half a save behind.
+  const { error } = await supabase.rpc("save_product", {
+    p_id: null,
+    p_product: productData,
+    p_category_ids: category_ids,
+    p_images: images ?? [],
+  });
   if (error) throw new Error(error.message);
-
-  // Insert category associations
-  if (category_ids.length > 0) {
-    const { error: catError } = await supabase
-      .from("product_categories")
-      .insert(category_ids.map((cid) => ({ product_id: inserted.id, category_id: cid })));
-    if (catError) throw new Error(catError.message);
-  }
-
-  // Insert product images
-  if (images && images.length > 0) {
-    const { error: imgError } = await supabase.from("product_images").insert(
-      images.map((img) => ({
-        product_id: inserted.id,
-        url: img.url,
-        alt: img.alt,
-        sort_order: img.sort_order,
-        is_primary: img.is_primary,
-      }))
-    );
-    if (imgError) throw new Error(imgError.message);
-  }
 
   revalidateProducts(data.slug);
 }
@@ -225,34 +199,17 @@ export async function updateProduct(
     productData.image_url = primary.url;
   }
 
-  const { error } = await supabase.from("products").update(productData).eq("id", id);
+  // One database call saves the product, its categories and its photos
+  // together (see the save_product migration), so a failure can't leave a
+  // product with no categories or no photos. Leaving images out keeps the
+  // current photos.
+  const { error } = await supabase.rpc("save_product", {
+    p_id: id,
+    p_product: productData,
+    p_category_ids: category_ids,
+    p_images: images ?? null,
+  });
   if (error) throw new Error(error.message);
-
-  // Replace category associations
-  await supabase.from("product_categories").delete().eq("product_id", id);
-  if (category_ids.length > 0) {
-    const { error: catError } = await supabase
-      .from("product_categories")
-      .insert(category_ids.map((cid) => ({ product_id: id, category_id: cid })));
-    if (catError) throw new Error(catError.message);
-  }
-
-  // Replace product images
-  if (images !== undefined) {
-    await supabase.from("product_images").delete().eq("product_id", id);
-    if (images.length > 0) {
-      const { error: imgError } = await supabase.from("product_images").insert(
-        images.map((img) => ({
-          product_id: id,
-          url: img.url,
-          alt: img.alt,
-          sort_order: img.sort_order,
-          is_primary: img.is_primary,
-        }))
-      );
-      if (imgError) throw new Error(imgError.message);
-    }
-  }
 
   revalidateProducts(data.slug);
 }
