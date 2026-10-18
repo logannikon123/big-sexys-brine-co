@@ -1,4 +1,5 @@
 import type { Product, Event as EventType } from "@/types";
+import { toPlainText } from "@/lib/plain-text";
 
 interface JsonLdProps {
   data: Record<string, unknown>;
@@ -60,7 +61,7 @@ export function ProductJsonLd({ product }: { product: Product }) {
         "@context": "https://schema.org",
         "@type": "Product",
         name: product.name,
-        description: product.description,
+        description: toPlainText(product.description),
         image: absoluteUrl(product.image),
         brand: {
           "@type": "Brand",
@@ -83,7 +84,7 @@ export function EventJsonLd({ event }: { event: EventType }) {
         "@context": "https://schema.org",
         "@type": "Event",
         name: event.name,
-        description: event.description || `${event.name} - Big Sexy's Brine Co.`,
+        description: toPlainText(event.description) || `${event.name} - Big Sexy's Brine Co.`,
         startDate: event.date,
         location: {
           "@type": "Place",
