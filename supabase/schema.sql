@@ -107,6 +107,55 @@ CREATE TABLE IF NOT EXISTS contest_entries (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Store settings for online ordering (single row; see
+-- supabase/migrations/20261020010748_store_settings.sql). Money in cents,
+-- weights in ounces, box sizes in inches, tax rate in hundredths of a percent.
+CREATE TABLE IF NOT EXISTS store_settings (
+  id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+
+  -- Master switch
+  orders_open BOOLEAN NOT NULL DEFAULT false,
+
+  -- Pickup
+  pickup_enabled BOOLEAN NOT NULL DEFAULT true,
+  pickup_instructions TEXT NOT NULL DEFAULT '',
+
+  -- Local delivery
+  delivery_enabled BOOLEAN NOT NULL DEFAULT true,
+  delivery_zip_codes TEXT[] NOT NULL DEFAULT '{}'
+    CHECK (array_position(delivery_zip_codes, NULL) IS NULL
+    AND array_to_string(delivery_zip_codes, ',') ~ '^([0-9]{5}(,[0-9]{5})*)?$'),
+  delivery_fee_cents INTEGER NOT NULL DEFAULT 500 CHECK (delivery_fee_cents >= 0),
+  delivery_min_order_cents INTEGER NOT NULL DEFAULT 0 CHECK (delivery_min_order_cents >= 0),
+  delivery_free_over_cents INTEGER CHECK (delivery_free_over_cents >= 0),
+  delivery_instructions TEXT NOT NULL DEFAULT '',
+
+  -- Shipping
+  shipping_enabled BOOLEAN NOT NULL DEFAULT true,
+  shipping_states TEXT[] NOT NULL DEFAULT '{CO}'
+    CHECK (array_position(shipping_states, NULL) IS NULL
+    AND array_to_string(shipping_states, ',') ~ '^([A-Z]{2}(,[A-Z]{2})*)?$'),
+  ship_from_zip TEXT NOT NULL DEFAULT '80214'
+    CHECK (ship_from_zip = '' OR ship_from_zip ~ '^[0-9]{5}$'),
+  shipping_service TEXT NOT NULL DEFAULT 'ground_advantage'
+    CHECK (shipping_service IN ('ground_advantage', 'priority')),
+  jars_per_box INTEGER NOT NULL DEFAULT 3 CHECK (jars_per_box > 0),
+  packing_fee_per_box_cents INTEGER NOT NULL DEFAULT 1000 CHECK (packing_fee_per_box_cents >= 0),
+  box_length_in NUMERIC(5,2) NOT NULL DEFAULT 14.5 CHECK (box_length_in > 0),
+  box_width_in NUMERIC(5,2) NOT NULL DEFAULT 6.5 CHECK (box_width_in > 0),
+  box_height_in NUMERIC(5,2) NOT NULL DEFAULT 7 CHECK (box_height_in > 0),
+  empty_box_weight_oz INTEGER NOT NULL DEFAULT 32 CHECK (empty_box_weight_oz >= 0),
+  jar_weight_16oz_oz INTEGER NOT NULL DEFAULT 32 CHECK (jar_weight_16oz_oz >= 0),
+  jar_weight_32oz_oz INTEGER NOT NULL DEFAULT 48 CHECK (jar_weight_32oz_oz >= 0),
+  shipping_cushion_per_box_cents INTEGER NOT NULL DEFAULT 0 CHECK (shipping_cushion_per_box_cents >= 0),
+  shipping_fallback_per_box_cents INTEGER NOT NULL DEFAULT 1500 CHECK (shipping_fallback_per_box_cents >= 0),
+
+  -- Sales tax
+  tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK (tax_rate_bps >= 0 AND tax_rate_bps <= 10000),
+
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Updated_at trigger for products
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -118,6 +167,11 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER products_updated_at
   BEFORE UPDATE ON products
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER store_settings_updated_at
+  BEFORE UPDATE ON store_settings
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at();
 
@@ -137,6 +191,7 @@ ALTER TABLE class_info ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gallery_images ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_images ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contest_entries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_settings ENABLE ROW LEVEL SECURITY;
 
 -- Public read access (for the website)
 CREATE POLICY "Public read categories" ON categories FOR SELECT USING (true);
@@ -146,6 +201,7 @@ CREATE POLICY "Public read events" ON events FOR SELECT USING (true);
 CREATE POLICY "Public read testimonials" ON testimonials FOR SELECT USING (true);
 CREATE POLICY "Public read class_info" ON class_info FOR SELECT USING (true);
 CREATE POLICY "Public read gallery_images" ON gallery_images FOR SELECT USING (true);
+CREATE POLICY "Public read store_settings" ON store_settings FOR SELECT USING (true);
 
 CREATE POLICY "Public read access" ON product_images FOR SELECT USING (true);
 
@@ -190,6 +246,9 @@ CREATE POLICY "Admin insert product_images" ON product_images FOR INSERT TO auth
 CREATE POLICY "Admin update product_images" ON product_images FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
 CREATE POLICY "Admin delete product_images" ON product_images FOR DELETE TO authenticated USING ((select public.is_admin()));
 
+-- Store settings: one row, made below. Admins may change it but not add or delete rows.
+CREATE POLICY "Admin update store_settings" ON store_settings FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+
 -- Contest entries hold names and emails. The contest form saves with the
 -- service role key, which skips these rules, so there is no public insert rule.
 CREATE POLICY "Admin read contest entries" ON contest_entries FOR SELECT TO authenticated USING ((select public.is_admin()));
@@ -205,6 +264,9 @@ INSERT INTO categories (name, slug, sort_order) VALUES
   ('Traditional', 'traditional', 5),
   ('Specialty', 'specialty', 6)
 ON CONFLICT (name) DO NOTHING;
+
+-- The single store settings row, with every default
+INSERT INTO store_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
 -- Storage bucket for images
 -- Run this separately in the Supabase dashboard or via the API:
