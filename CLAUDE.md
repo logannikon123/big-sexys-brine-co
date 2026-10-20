@@ -191,6 +191,13 @@ requests like any other: checks must pass, and Jesse approves the merge.
 - `SUPABASE_SERVICE_ROLE_KEY` bypasses all database security. Use it only in server code that needs it
   (today, only `src/app/api/contest/route.ts`), and never in anything sent to the browser.
 - Production values are set in Vercel. Change them there, then ask Jesse whether to redeploy.
+- Online ordering (coming soon) adds these settings: `NEXT_PUBLIC_SQUARE_APPLICATION_ID`,
+  `NEXT_PUBLIC_SQUARE_LOCATION_ID`, `NEXT_PUBLIC_SQUARE_ENVIRONMENT`, `SQUARE_ACCESS_TOKEN`,
+  `SQUARE_WEBHOOK_SIGNATURE_KEY`, `SQUARE_WEBHOOK_URL`, `ORS_API_KEY`, `PUSHOVER_TOKEN`, `PUSHOVER_USER`
+  and `ORDER_ALERT_EMAIL`. Jesse sets the real values in Vercel himself; never ask for them in chat.
+  Preview and Development use Square sandbox values, and Production uses live values. Only
+  `NEXT_PUBLIC_` settings reach the browser, so they hold IDs only, never secrets. Server code gets
+  its Square client from `src/lib/square.ts`.
 
 ## Commands
 
