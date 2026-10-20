@@ -3,6 +3,7 @@ import Image from "next/image";
 import { Container } from "./Container";
 import { Instagram, Mail, MapPin, Phone } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { CottageFoodNotice } from "@/components/legal/CottageFoodNotice";
 
 const footerLinks = [
   { href: "/products", label: "The Lineup" },
@@ -11,6 +12,13 @@ const footerLinks = [
   { href: "/learn-to-preserve", label: "Take a Class" },
   { href: "/gallery", label: "Behind the Jars" },
   { href: "/contact", label: "Say Hello" },
+];
+
+const policyLinks = [
+  { href: "/shipping", label: "Shipping, Delivery and Pickup" },
+  { href: "/refunds", label: "Refunds and Cancellations" },
+  { href: "/privacy", label: "Privacy Policy" },
+  { href: "/terms", label: "Terms of Sale" },
 ];
 
 export function Footer() {
@@ -108,6 +116,23 @@ export function Footer() {
         </div>
 
         <Separator className="my-8 bg-brand-brown/30" />
+
+        <nav aria-label="Store policies" className="mb-6">
+          <ul className="flex flex-wrap justify-center gap-x-6 gap-y-2">
+            {policyLinks.map((link) => (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  className="text-sm text-brand-cream/70 hover:text-brand-orange transition-colors"
+                >
+                  {link.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <CottageFoodNotice className="mb-6 text-center" />
 
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-xs text-brand-cream/50">
