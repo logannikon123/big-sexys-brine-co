@@ -55,6 +55,21 @@ export function LocalBusinessJsonLd() {
 }
 
 export function ProductJsonLd({ product }: { product: Product }) {
+  // Search engines show a price only when the product has one.
+  const offers =
+    product.priceCents != null
+      ? {
+          "@type": "Offer",
+          price: (product.priceCents / 100).toFixed(2),
+          priceCurrency: "USD",
+          availability:
+            product.soldOnline && !product.soldOut
+              ? "https://schema.org/InStock"
+              : "https://schema.org/OutOfStock",
+          url: `${SITE_URL}/products/${product.slug}`,
+        }
+      : undefined;
+
   return (
     <JsonLd
       data={{
@@ -72,6 +87,7 @@ export function ProductJsonLd({ product }: { product: Product }) {
           name: "Big Sexy's Brine Co.",
         },
         category: product.category,
+        ...(offers && { offers }),
       }}
     />
   );

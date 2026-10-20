@@ -5,6 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ProductJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { ProductImageCarousel } from "@/components/products/ProductImageCarousel";
+import { PriceTag } from "@/components/products/PriceTag";
+import { sizeLabel } from "@/lib/utils";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import Link from "next/link";
@@ -84,7 +86,7 @@ export default async function ProductDetailPage({
           <ProductImageCarousel
             images={product.images ?? []}
             productName={product.name}
-            productSize={product.size}
+            productSize={sizeLabel(product.size)}
             fallbackImage={product.image}
           />
 
@@ -105,9 +107,16 @@ export default async function ProductDetailPage({
               </p>
             </div>
 
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-brand-cream/60">Heat Level:</span>
-              <HeatIndicator level={product.heat} size={20} />
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+              <PriceTag
+                priceCents={product.priceCents}
+                soldOut={product.soldOut}
+                priceClassName="font-display text-3xl font-bold"
+              />
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-brand-cream/60">Heat Level:</span>
+                <HeatIndicator level={product.heat} size={20} />
+              </div>
             </div>
 
             <Separator className="bg-brand-brown/30" />
@@ -139,9 +148,16 @@ export default async function ProductDetailPage({
             <Separator className="bg-brand-brown/30" />
 
             <div className="bg-card border border-brand-brown/20 rounded-xl p-6 space-y-4">
-              <h3 className="font-display text-lg font-semibold text-brand-cream">
-                Want This Jar?
-              </h3>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h3 className="font-display text-lg font-semibold text-brand-cream">
+                  Want This Jar?
+                </h3>
+                <PriceTag
+                  priceCents={product.priceCents}
+                  soldOut={product.soldOut}
+                  priceClassName="text-lg"
+                />
+              </div>
               <p className="text-sm text-brand-cream/60">
                 Grab one at our next market, or reach out for custom orders and
                 bulk pricing. We&apos;ll hook you up.
