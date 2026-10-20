@@ -9,7 +9,7 @@ import { checkDeliveryDate, deliveryDateWindow, MAX_DELIVERY_DAYS_AHEAD } from "
 import { geocodeAddress, type GeocodeFailureReason, type GeocodeMatch } from "@/lib/checkout/geocode";
 import { drivingDistance, type DistanceMethod } from "@/lib/checkout/distance";
 import { estimatePostage, type PostageMethod } from "@/lib/checkout/postage";
-import { lookupFoodTax, type FoodTaxQuery } from "@/lib/checkout/tax";
+import { lookupFoodTax } from "@/lib/food-tax";
 
 /**
  * The checkout price calculator. Given a cart and a way to get the jars
@@ -21,6 +21,14 @@ import { lookupFoodTax, type FoodTaxQuery } from "@/lib/checkout/tax";
  *
  *   total = subtotal + delivery + rush + packing + postage + tax - discount
  */
+
+/** The Census codes that decide an address's food tax. */
+interface FoodTaxQuery {
+  /** Census place code of the city or town, or null outside any town. */
+  placeGeoid: string | null;
+  /** Census state and county code, like "08059". */
+  countyFips: string | null;
+}
 
 /**
  * Pickup is at The Karma House, 8402 W Colfax Ave, Lakewood, so pickup orders
@@ -289,7 +297,11 @@ function geoFields(match: GeocodeMatch): GeoFields {
 }
 
 /**
- * Local food tax on the jars.
+ * Local food tax on the jars, from the food_tax_rates table (see
+ * src/lib/food-tax.ts). Tax is charged only when every rate that applies is
+ * on file and confirmed by an admin, and the address is in no county with a
+ * special food tax district. Any other answer charges no tax and marks the
+ * quote needs_review, so Jesse checks the tax before packing.
  *
  * Tax applies to the jar subtotal only. We treat the delivery, rush, packing
  * and postage fees as not taxable. Confirm this with the accountant: some
@@ -306,11 +318,15 @@ async function quoteTax(
     tax: { status: "needs_review" as const, rateBps: null, jurisdiction, note: TAX_REVIEW_NOTE },
   });
 
-  if (!query || (query.placeGeoid === null && query.countyFips === null)) return needsReview();
+  // Without a county there is no rate to look up.
+  if (!query?.countyFips) return needsReview();
 
   let lookup;
   try {
-    lookup = await lookupFoodTax(query);
+    lookup = await lookupFoodTax(
+      { placeGeoid: query.placeGeoid, countyFips: query.countyFips },
+      publicClient()
+    );
   } catch (error) {
     console.error(
       "Quote: food tax lookup failed:",
@@ -319,21 +335,25 @@ async function quoteTax(
     return needsReview();
   }
 
-  const rate = lookup.rateBps;
+  if (lookup.status === "unknown") {
+    if (lookup.reason === "lookup_failed") console.error("Quote: couldn't read food tax rates.");
+    return needsReview();
+  }
+
+  const rate = lookup.status === "ok" ? lookup.rateBps : null;
   if (
-    lookup.status !== "ok" ||
+    rate === null ||
     lookup.maybeInDistrict ||
-    typeof rate !== "number" ||
     !Number.isInteger(rate) ||
     rate < 0 ||
     rate > 10_000
   ) {
-    return needsReview(lookup.jurisdiction ?? null);
+    return needsReview(lookup.jurisdiction);
   }
 
   return {
     taxCents: Math.round((subtotalCents * rate) / 10_000),
-    tax: { status: "ok", rateBps: rate, jurisdiction: lookup.jurisdiction ?? null, note: null },
+    tax: { status: "ok", rateBps: rate, jurisdiction: lookup.jurisdiction, note: null },
   };
 }
 
