@@ -3,18 +3,24 @@ import { z } from "zod";
 /**
  * Store settings for online ordering: one row in the store_settings table.
  * Money is in whole cents (500 = $5.00), weights in ounces, box sizes in
- * inches, and the tax rate in hundredths of a percent (400 = 4.00%).
+ * inches, distances in miles, and the tax rate in hundredths of a percent
+ * (400 = 4.00%). Anyone can read these.
  */
 export interface StoreSettings {
   orders_open: boolean;
   pickup_enabled: boolean;
   pickup_instructions: string;
   delivery_enabled: boolean;
-  delivery_zip_codes: string[];
-  delivery_fee_cents: number;
   delivery_min_order_cents: number;
-  delivery_free_over_cents: number | null;
   delivery_instructions: string;
+  delivery_max_miles: number;
+  delivery_step_miles: number;
+  delivery_fee_per_step_cents: number;
+  delivery_standard_hours: number;
+  rush_fee_cents: number;
+  free_delivery_enabled: boolean;
+  free_delivery_max_miles: number | null;
+  free_delivery_min_order_cents: number | null;
   shipping_enabled: boolean;
   shipping_states: string[];
   ship_from_zip: string;
@@ -30,6 +36,18 @@ export interface StoreSettings {
   shipping_cushion_per_box_cents: number;
   shipping_fallback_per_box_cents: number;
   tax_rate_bps: number;
+}
+
+/**
+ * Private store settings: one row in the store_private_settings table, which
+ * only admins can read. It holds the delivery starting point (the owner's
+ * home or kitchen address), so it must never reach a customer.
+ */
+export interface StorePrivateSettings {
+  delivery_origin_address: string;
+  delivery_origin_lat: number | null;
+  delivery_origin_lon: number | null;
+  delivery_origin_matched_address: string | null;
 }
 
 export const SHIPPING_SERVICES = [
@@ -64,6 +82,16 @@ const ounces = (label: string) =>
     .min(0, `${label} can't be less than 0.`)
     .max(1600, `${label} looks too high (over 100 pounds).`);
 
+const miles = (label: string) =>
+  z
+    .number({ error: `${label}: enter a number of miles, like 6 or 7.5.` })
+    .gt(0, `${label} must be more than 0 miles.`)
+    .max(500, `${label} looks too high.`)
+    .refine(
+      (n) => Math.abs(n * 10 - Math.round(n * 10)) < 1e-9,
+      `${label}: use at most one decimal place, like 7.5.`
+    );
+
 const inches = (label: string) =>
   z
     .number({ error: `${label}: enter a size in inches.` })
@@ -76,13 +104,20 @@ export const storeSettingsSchema = z
     pickup_enabled: z.boolean(),
     pickup_instructions: z.string().trim().max(2000, "Pickup instructions are too long."),
     delivery_enabled: z.boolean(),
-    delivery_zip_codes: z
-      .array(z.string().regex(/^\d{5}$/, "Each delivery ZIP code must be 5 digits."))
-      .max(500, "That's too many delivery ZIP codes."),
-    delivery_fee_cents: cents("Delivery fee"),
     delivery_min_order_cents: cents("Smallest order for delivery"),
-    delivery_free_over_cents: cents("Free delivery amount").nullable(),
     delivery_instructions: z.string().trim().max(2000, "Delivery instructions are too long."),
+    delivery_max_miles: miles("Farthest you deliver"),
+    delivery_step_miles: miles("Miles in each price step"),
+    delivery_fee_per_step_cents: cents("Price for each step"),
+    delivery_standard_hours: z
+      .number({ error: "Standard delivery time: enter a whole number of hours." })
+      .int("Standard delivery time: enter a whole number of hours.")
+      .min(1, "Standard delivery time must be at least 1 hour.")
+      .max(720, "Standard delivery time over 30 days looks like a typo."),
+    rush_fee_cents: cents("Rush fee"),
+    free_delivery_enabled: z.boolean(),
+    free_delivery_max_miles: miles("Free delivery distance").nullable(),
+    free_delivery_min_order_cents: cents("Smallest order for free delivery").nullable(),
     shipping_enabled: z.boolean(),
     shipping_states: z
       .array(
@@ -117,19 +152,25 @@ export const storeSettingsSchema = z
   })
   .strict()
   .superRefine((s, ctx) => {
+    if (
+      s.free_delivery_enabled &&
+      (s.free_delivery_max_miles === null || s.free_delivery_min_order_cents === null)
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Free delivery is on: fill in both the distance and the order amount, or turn it off.",
+      });
+    }
+
     // These only matter once customers can order, so a half-finished setup
-    // can still be saved while the store is closed.
+    // can still be saved while the store is closed. (The delivery starting
+    // point is private, so updateStoreSettings checks it on the server.)
     if (!s.orders_open) return;
     if (!s.pickup_enabled && !s.delivery_enabled && !s.shipping_enabled) {
       ctx.addIssue({
         code: "custom",
         message: "To open the store, turn on at least one of pickup, local delivery or shipping.",
-      });
-    }
-    if (s.delivery_enabled && s.delivery_zip_codes.length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        message: "Local delivery is on, but no ZIP codes are listed. Add some or turn delivery off.",
       });
     }
     if (s.shipping_enabled && s.shipping_states.length === 0) {
