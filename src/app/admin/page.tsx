@@ -1,9 +1,16 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/supabase/auth-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Package, CalendarDays, MessageSquareQuote, Images } from "lucide-react";
+import {
+  Package,
+  CalendarDays,
+  MessageSquareQuote,
+  Images,
+  ShoppingBag,
+} from "lucide-react";
 import Link from "next/link";
 import { ClearCacheButton } from "@/components/admin/clear-cache-button";
+import { countNewOrders } from "@/app/admin/orders/order-data";
 
 export default async function AdminDashboardPage() {
   await requireAuth();
@@ -14,11 +21,13 @@ export default async function AdminDashboardPage() {
     { count: eventCount },
     { count: testimonialCount },
     { count: galleryCount },
+    newOrderCount,
   ] = await Promise.all([
     supabase.from("products").select("*", { count: "exact", head: true }),
     supabase.from("events").select("*", { count: "exact", head: true }),
     supabase.from("testimonials").select("*", { count: "exact", head: true }),
     supabase.from("gallery_images").select("*", { count: "exact", head: true }),
+    countNewOrders(),
   ]);
 
   // Get upcoming events — match public events page logic: include recurring
@@ -45,6 +54,15 @@ export default async function AdminDashboardPage() {
     .limit(3);
 
   const stats = [
+    {
+      // Paid orders waiting to be packed.
+      label: "New orders",
+      value: newOrderCount,
+      icon: ShoppingBag,
+      href: "/admin/orders",
+      color: "text-brand-orange",
+      highlight: newOrderCount > 0,
+    },
     {
       label: "Products",
       value: productCount ?? 0,
@@ -88,10 +106,16 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {stats.map((stat) => (
           <Link key={stat.label} href={stat.href}>
-            <Card className="hover:border-muted-foreground/30 transition-colors">
+            <Card
+              className={
+                "highlight" in stat && stat.highlight
+                  ? "border-brand-orange transition-colors hover:border-brand-orange/70"
+                  : "hover:border-muted-foreground/30 transition-colors"
+              }
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {stat.label}
