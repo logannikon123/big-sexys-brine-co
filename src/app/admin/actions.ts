@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireAuthAction } from "@/lib/supabase/auth-guard";
 import { revalidatePath } from "next/cache";
 import { revalidateTag } from "next/cache";
+import { storeSettingsSchema, type StoreSettings } from "@/lib/store-settings";
 
 /**
  * Revalidate all product-related pages and caches.
@@ -383,6 +384,34 @@ export async function updateClassInfo(data: {
   const { error } = await supabase.from("class_info").update(data).eq("id", 1);
   if (error) throw new Error(error.message);
   revalidateClassInfo();
+}
+
+// Store settings
+/**
+ * Save the single store settings row. Returns an error message instead of
+ * throwing, because the live site hides thrown messages and Jesse needs to
+ * see which setting to fix.
+ */
+export async function updateStoreSettings(
+  data: StoreSettings
+): Promise<{ error?: string }> {
+  await requireAuthAction();
+  const parsed = storeSettingsSchema.safeParse(data);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Those settings aren't valid." };
+  }
+  const supabase = await createClient();
+  const { data: saved, error } = await supabase
+    .from("store_settings")
+    .update(parsed.data)
+    .eq("id", 1)
+    .select("id");
+  if (error) return { error: error.message };
+  if (!saved || saved.length === 0) {
+    return { error: "The store settings weren't saved. The settings row is missing, or this account can't change it." };
+  }
+  revalidatePath("/admin/store");
+  return {};
 }
 
 // Gallery
