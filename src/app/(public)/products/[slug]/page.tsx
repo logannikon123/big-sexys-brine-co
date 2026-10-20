@@ -1,12 +1,13 @@
 import { Container } from "@/components/layout/Container";
 import { HeatIndicator } from "@/components/products/HeatIndicator";
-import { getProducts, getProductBySlug } from "@/lib/data";
+import { getProducts, getProductBySlug, getOrderingAvailable } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ProductJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { ProductImageCarousel } from "@/components/products/ProductImageCarousel";
 import { PriceTag } from "@/components/products/PriceTag";
-import { sizeLabel } from "@/lib/utils";
+import { canOrderOnline, sizeLabel } from "@/lib/utils";
+import { AddToCart } from "@/components/cart/AddToCart";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import Link from "next/link";
@@ -57,7 +58,11 @@ export default async function ProductDetailPage({
 
   if (!product) notFound();
 
-  const allProducts = await getProducts();
+  const [allProducts, orderingAvailable] = await Promise.all([
+    getProducts(),
+    getOrderingAvailable(),
+  ]);
+  const orderable = orderingAvailable && canOrderOnline(product);
   const currentIndex = allProducts.findIndex((p) => p.slug === slug);
   const prevProduct = currentIndex > 0 ? allProducts[currentIndex - 1] : null;
   const nextProduct =
@@ -150,7 +155,7 @@ export default async function ProductDetailPage({
             <div className="bg-card border border-brand-brown/20 rounded-xl p-6 space-y-4">
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                 <h3 className="font-display text-lg font-semibold text-brand-cream">
-                  Want This Jar?
+                  {orderable ? "Order This Jar" : "Want This Jar?"}
                 </h3>
                 <PriceTag
                   priceCents={product.priceCents}
@@ -158,24 +163,41 @@ export default async function ProductDetailPage({
                   priceClassName="text-lg"
                 />
               </div>
-              <p className="text-sm text-brand-cream/60">
-                Grab one at our next market, or reach out for custom orders and
-                bulk pricing. We&apos;ll hook you up.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Link
-                  href="/contact"
-                  className="inline-flex items-center justify-center px-6 py-3 bg-brand-orange text-white font-semibold rounded-full hover:bg-brand-orange/90 transition-colors"
-                >
-                  Say Hello
-                </Link>
-                <Link
-                  href="/events"
-                  className="inline-flex items-center justify-center px-6 py-3 border border-brand-cream/30 text-brand-cream font-semibold rounded-full hover:border-brand-orange hover:text-brand-orange transition-colors"
-                >
-                  Find Us Live
-                </Link>
-              </div>
+              {orderable ? (
+                <>
+                  <AddToCart productId={product.id} productName={product.name} />
+                  <p className="text-xs text-brand-cream/60">
+                    Pick up in Lakewood, local delivery, or shipping in Colorado.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-brand-cream/60">
+                    {orderingAvailable ? (
+                      "Sold out online for now. Find it at our next market."
+                    ) : (
+                      <>
+                        Grab one at our next market, or reach out for custom orders and
+                        bulk pricing. We&apos;ll hook you up.
+                      </>
+                    )}
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Link
+                      href="/contact"
+                      className="inline-flex items-center justify-center px-6 py-3 bg-brand-orange text-white font-semibold rounded-full hover:bg-brand-orange/90 transition-colors"
+                    >
+                      Say Hello
+                    </Link>
+                    <Link
+                      href="/events"
+                      className="inline-flex items-center justify-center px-6 py-3 border border-brand-cream/30 text-brand-cream font-semibold rounded-full hover:border-brand-orange hover:text-brand-orange transition-colors"
+                    >
+                      Find Us Live
+                    </Link>
+                  </div>
+                </>
+              )}
             </div>
 
             <CottageFoodNotice />
