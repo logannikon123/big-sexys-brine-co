@@ -110,7 +110,7 @@ export default function ShippingPage() {
       <PolicySection title="If a jar arrives broken">
         <p>
           Glass sometimes breaks in transit, however well we pack it. If a jar
-          arrives broken, email us a photo within 48 hours of delivery and we
+          arrives broken, email us a photo within 72 hours of delivery and we
           will replace it or refund it. Our{" "}
           <PolicyLink href="/refunds">Refunds and Cancellations</PolicyLink>{" "}
           page explains how.

@@ -47,7 +47,7 @@ export default function RefundsPage() {
           <li>
             Email{" "}
             <PolicyLink href={`mailto:${POLICY_EMAIL}`}>{POLICY_EMAIL}</PolicyLink>{" "}
-            within 48 hours of delivery or pickup.
+            within 72 hours of delivery or pickup.
           </li>
           <li>Include a photo of the problem and your order number.</li>
         </PolicyList>
