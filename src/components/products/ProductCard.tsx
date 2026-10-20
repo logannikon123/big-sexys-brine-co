@@ -2,8 +2,9 @@ import Link from "next/link";
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { HeatIndicator } from "./HeatIndicator";
+import { PriceTag } from "./PriceTag";
 import type { Product } from "@/types";
-import { cn } from "@/lib/utils";
+import { cn, sizeLabel } from "@/lib/utils";
 
 interface ProductCardProps {
   product: Product;
@@ -30,7 +31,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
         <Badge
           className="absolute top-3 right-3 bg-brand-orange/90 text-white text-xs border-0 z-10"
         >
-          {product.size}
+          {sizeLabel(product.size)}
         </Badge>
       </div>
       <div className="p-4 space-y-2">
@@ -38,6 +39,12 @@ export function ProductCard({ product, className }: ProductCardProps) {
           <h3 className="font-display text-lg font-semibold text-brand-cream group-hover:text-brand-orange transition-colors">
             {product.name}
           </h3>
+          <PriceTag
+            priceCents={product.priceCents}
+            soldOut={product.soldOut}
+            className="shrink-0 flex-col items-end gap-0 pt-0.5"
+            priceClassName="text-lg"
+          />
         </div>
         <p className="text-sm text-brand-cream/60 italic">{product.tagline}</p>
         <div className="flex items-center justify-between pt-1">
