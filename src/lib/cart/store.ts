@@ -8,8 +8,18 @@ import { z } from "zod";
  */
 
 export const CART_STORAGE_KEY = "bsb-cart-v1";
-export const MAX_QTY_PER_LINE = 12;
+/**
+ * We sell as many jars as someone wants. This cap only stops a typo from
+ * putting a silly number in the cart.
+ */
+export const MAX_QTY_PER_LINE = 999;
 export const MAX_LINES = 20;
+
+/** Round to a whole number and keep it between 1 and MAX_QTY_PER_LINE. */
+export function clampQty(qty: number): number {
+  if (!Number.isFinite(qty)) return 1;
+  return Math.min(MAX_QTY_PER_LINE, Math.max(1, Math.floor(qty)));
+}
 
 export interface CartItem {
   productId: number;
@@ -130,15 +140,14 @@ export function subscribeCart(listener: () => void) {
 }
 
 export type AddResult =
-  | { ok: true; qty: number; capped: boolean }
+  | { ok: true; qty: number }
   | { ok: false; reason: "full" };
 
-/** Add jars to the cart. A line holds at most 12, and the cart at most 20 lines. */
+/** Add jars to the cart. The cart holds at most 20 different products. */
 export function addToCart(productId: number, qty: number): AddResult {
   const items = getCartSnapshot();
   const existing = items.find((item) => item.productId === productId);
-  const wanted = (existing?.qty ?? 0) + Math.max(1, Math.floor(qty));
-  const newQty = Math.min(MAX_QTY_PER_LINE, wanted);
+  const newQty = clampQty((existing?.qty ?? 0) + clampQty(qty));
   if (existing) {
     write(
       items.map((item) =>
@@ -149,11 +158,11 @@ export function addToCart(productId: number, qty: number): AddResult {
     if (items.length >= MAX_LINES) return { ok: false, reason: "full" };
     write([...items, { productId, qty: newQty }]);
   }
-  return { ok: true, qty: newQty, capped: wanted > MAX_QTY_PER_LINE };
+  return { ok: true, qty: newQty };
 }
 
 export function setCartQty(productId: number, qty: number) {
-  const newQty = Math.min(MAX_QTY_PER_LINE, Math.max(1, Math.floor(qty)));
+  const newQty = clampQty(qty);
   write(
     getCartSnapshot().map((item) =>
       item.productId === productId ? { ...item, qty: newQty } : item

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { useCart } from "./CartProvider";
 import { QuantityStepper } from "./QuantityStepper";
-import { MAX_LINES, MAX_QTY_PER_LINE } from "@/lib/cart/store";
+import { MAX_LINES } from "@/lib/cart/store";
 
 interface AddToCartProps {
   productId: number;
@@ -26,9 +26,7 @@ export function AddToCart({ productId, productName }: AddToCartProps) {
       return;
     }
     toast.success("Added to your cart", {
-      description: result.capped
-        ? `You now have ${MAX_QTY_PER_LINE} jars of ${productName}, the most we sell in one order.`
-        : `${qty} ${qty === 1 ? "jar" : "jars"} of ${productName}`,
+      description: `${qty} ${qty === 1 ? "jar" : "jars"} of ${productName}`,
       action: { label: "View cart", onClick: () => router.push("/cart") },
     });
     setQty(1);
