@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/table";
 import {
   ORDER_VIEWS,
+  TODO_COMPLETED_LIMIT,
   formatDeliveryDate,
   formatOrderTime,
   fulfillmentLabel,
@@ -83,6 +84,14 @@ function EmptyState({ anyOrders }: { anyOrders: boolean }) {
 }
 
 export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
+  // "To do" adds up to TODO_COMPLETED_LIMIT completed orders below the open
+  // ones, so count the two groups apart for the notes under the list.
+  const completedCount =
+    view.key === "todo"
+      ? orders.filter((o) => o.status === "fulfilled").length
+      : 0;
+  const mainCount = orders.length - completedCount;
+
   return (
     <div className="space-y-4">
       <ViewTabs current={view} />
@@ -110,10 +119,7 @@ export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
                       <p className="text-lg font-bold">#{order.order_number}</p>
                       <p className="truncate font-medium">{order.customer_name}</p>
                     </div>
-                    <OrderStatusBadge
-                      status={order.status}
-                      fulfillmentType={order.fulfillment_type}
-                    />
+                    <OrderStatusBadge status={order.status} />
                   </div>
                   <div className="mt-3 space-y-1 text-sm text-muted-foreground">
                     <p className="text-foreground">
@@ -189,10 +195,7 @@ export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
                       {formatPrice(order.total_cents)}
                     </TableCell>
                     <TableCell>
-                      <OrderStatusBadge
-                        status={order.status}
-                        fulfillmentType={order.fulfillment_type}
-                      />
+                      <OrderStatusBadge status={order.status} />
                     </TableCell>
                     <TableCell className="text-right">
                       <Link
@@ -209,9 +212,15 @@ export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
             </Table>
           </Card>
 
-          {orders.length >= 100 && (
+          {mainCount >= 100 && (
             <p className="text-xs text-muted-foreground">
               Showing the newest 100 orders in this list.
+            </p>
+          )}
+          {completedCount >= TODO_COMPLETED_LIMIT && (
+            <p className="text-xs text-muted-foreground">
+              Showing the newest {TODO_COMPLETED_LIMIT} completed orders. The
+              Completed list has the rest.
             </p>
           )}
         </>

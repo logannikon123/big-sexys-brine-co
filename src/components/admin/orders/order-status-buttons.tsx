@@ -58,15 +58,22 @@ export function OrderStatusButtons({
 }: OrderStatusButtonsProps) {
   const [pending, startTransition] = useTransition();
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const [confirmDone, setConfirmDone] = useState(false);
 
   const moves = allowedMoves(fulfillmentType, status);
   const forward = moves.filter((m) => m !== "cancelled");
   const canCancel = moves.includes("cancelled");
+  const doneWords = fulfillmentType === "pickup" ? "picked up" : "delivered";
+
+  function closeDialogs() {
+    setConfirmCancel(false);
+    setConfirmDone(false);
+  }
 
   function move(next: AdminMoveStatus) {
     if (demo) {
       toast.info("Demo only, nothing saved");
-      setConfirmCancel(false);
+      closeDialogs();
       return;
     }
     startTransition(async () => {
@@ -76,7 +83,7 @@ export function OrderStatusButtons({
           toast.error(result.error);
         } else {
           toast.success(
-            `Order #${orderNumber} is now "${statusLabel(next, fulfillmentType)}"`
+            `Order #${orderNumber} is now "${statusLabel(next)}"`
           );
         }
       } catch {
@@ -84,7 +91,7 @@ export function OrderStatusButtons({
           "Something went wrong and nothing was saved. Check your connection and try again."
         );
       } finally {
-        setConfirmCancel(false);
+        closeDialogs();
       }
     });
   }
@@ -103,7 +110,10 @@ export function OrderStatusButtons({
               type="button"
               className="h-12 w-full text-base"
               disabled={pending || needsTracking}
-              onClick={() => move(next)}
+              // Completing an order can't be undone, so ask first.
+              onClick={() =>
+                next === "fulfilled" ? setConfirmDone(true) : move(next)
+              }
             >
               {pending ? "Saving..." : moveButtonLabel(next, fulfillmentType)}
             </Button>
@@ -157,6 +167,33 @@ export function OrderStatusButtons({
             onClick={() => move("cancelled")}
           >
             {pending ? "Cancelling..." : "Cancel order"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDone} onOpenChange={setConfirmDone}>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            Mark order #{orderNumber} as {doneWords}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            This can&apos;t be undone. The order drops to the bottom of To
+            do, marked Completed.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel
+            className="h-11"
+            onClick={() => setConfirmDone(false)}
+          >
+            Not yet
+          </AlertDialogCancel>
+          <AlertDialogAction
+            className="h-11"
+            disabled={pending}
+            onClick={() => move("fulfilled")}
+          >
+            {pending ? "Saving..." : moveButtonLabel("fulfilled", fulfillmentType)}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialog>

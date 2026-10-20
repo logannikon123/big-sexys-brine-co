@@ -1,15 +1,13 @@
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { STATUS_BADGE_CLASS, statusLabel } from "./order-flow";
-import type { FulfillmentType, OrderStatus } from "@/types/orders";
+import type { OrderStatus } from "@/types/orders";
 
 export function OrderStatusBadge({
   status,
-  fulfillmentType,
   className,
 }: {
   status: OrderStatus;
-  fulfillmentType: FulfillmentType;
   className?: string;
 }) {
   return (
@@ -17,7 +15,7 @@ export function OrderStatusBadge({
       variant="outline"
       className={cn("text-xs", STATUS_BADGE_CLASS[status], className)}
     >
-      {statusLabel(status, fulfillmentType)}
+      {statusLabel(status)}
     </Badge>
   );
 }

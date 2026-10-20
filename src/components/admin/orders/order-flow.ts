@@ -27,7 +27,8 @@ export type AdminMoveStatus =
  * - pickup:         paid -> ready_for_pickup -> fulfilled ("Picked up")
  * - local_delivery: paid -> out_for_delivery -> fulfilled ("Delivered")
  * - shipping:       paid -> shipped -> fulfilled ("Delivered")
- * - any open order can be cancelled.
+ * - paid, ready_for_pickup and out_for_delivery orders can be cancelled.
+ *   A shipped order can't: the jars are already with the carrier.
  *
  * Square, through the webhook, sets paid, payment_failed, refunded,
  * partially_refunded and disputed. Admins never set those by hand, so they
@@ -47,7 +48,7 @@ export const ALLOWED_MOVES: Record<
   },
   shipping: {
     paid: ["shipped", "cancelled"],
-    shipped: ["fulfilled", "cancelled"],
+    shipped: ["fulfilled"],
   },
 };
 
@@ -100,8 +101,11 @@ export function moveButtonLabel(
   }
 }
 
-/** The status in plain words. A fulfilled pickup reads "Picked up". */
-export function statusLabel(status: OrderStatus, type?: FulfillmentType): string {
+/**
+ * The status in plain words. A fulfilled order reads "Completed". The order
+ * page's history still says whether it was picked up or delivered.
+ */
+export function statusLabel(status: OrderStatus): string {
   switch (status) {
     case "pending_payment":
       return "Waiting for payment";
@@ -116,7 +120,7 @@ export function statusLabel(status: OrderStatus, type?: FulfillmentType): string
     case "shipped":
       return "Shipped";
     case "fulfilled":
-      return type === "pickup" ? "Picked up" : "Delivered";
+      return "Completed";
     case "cancelled":
       return "Cancelled";
     case "refunded":
@@ -128,7 +132,10 @@ export function statusLabel(status: OrderStatus, type?: FulfillmentType): string
   }
 }
 
-/** Badge colors for each status, picked to read on the dark admin. */
+/**
+ * Badge colors for each status, picked to read on the dark admin. New orders
+ * are solid orange and completed ones solid green, so both stand out.
+ */
 export const STATUS_BADGE_CLASS: Record<OrderStatus, string> = {
   pending_payment: "border-zinc-500/50 bg-zinc-500/10 text-zinc-300",
   payment_failed: "border-red-500/50 bg-red-500/15 text-red-300",
@@ -136,7 +143,7 @@ export const STATUS_BADGE_CLASS: Record<OrderStatus, string> = {
   ready_for_pickup: "border-sky-500/50 bg-sky-500/15 text-sky-300",
   out_for_delivery: "border-sky-500/50 bg-sky-500/15 text-sky-300",
   shipped: "border-violet-500/50 bg-violet-500/15 text-violet-300",
-  fulfilled: "border-emerald-500/50 bg-emerald-500/15 text-emerald-300",
+  fulfilled: "border-emerald-600 bg-emerald-600 text-white",
   cancelled: "border-zinc-500/50 bg-zinc-500/15 text-zinc-300",
   refunded: "border-amber-500/50 bg-amber-500/15 text-amber-300",
   partially_refunded: "border-amber-500/50 bg-amber-500/15 text-amber-300",
@@ -154,14 +161,31 @@ export function fulfillmentLabel(type: FulfillmentType): string {
   }
 }
 
-/** The tabs on the order list, picked with ?view= in the address. */
+/**
+ * Orders with a step still to take. A shipped order counts, because Jesse
+ * still marks it delivered.
+ */
+export const OPEN_STATUSES = [
+  "paid",
+  "ready_for_pickup",
+  "out_for_delivery",
+  "shipped",
+] as const satisfies readonly OrderStatus[];
+
+/** How many completed orders "To do" shows below the open ones. */
+export const TODO_COMPLETED_LIMIT = 20;
+
+/**
+ * The tabs on the order list, picked with ?view= in the address. "To do"
+ * lists the open orders, then the newest completed ones at the bottom.
+ */
 export const ORDER_VIEWS = [
   {
     key: "todo",
     label: "To do",
-    statuses: ["paid", "ready_for_pickup", "out_for_delivery"],
+    statuses: [...OPEN_STATUSES, "fulfilled"],
   },
-  { key: "done", label: "Done", statuses: ["shipped", "fulfilled"] },
+  { key: "completed", label: "Completed", statuses: ["fulfilled"] },
   {
     key: "cancelled",
     label: "Cancelled and refunded",
@@ -181,6 +205,22 @@ export const ORDER_VIEWS = [
 
 export type OrderView = (typeof ORDER_VIEWS)[number];
 export type OrderViewKey = OrderView["key"];
+
+/**
+ * Puts "To do" in order: open orders first, then completed ones, each group
+ * newest first. Keeps at most TODO_COMPLETED_LIMIT completed orders.
+ */
+export function arrangeTodo<T extends Pick<Order, "status" | "created_at">>(
+  orders: readonly T[]
+): T[] {
+  const newestFirst = (a: T, b: T) => b.created_at.localeCompare(a.created_at);
+  const open = orders.filter((o) => o.status !== "fulfilled").sort(newestFirst);
+  const completed = orders
+    .filter((o) => o.status === "fulfilled")
+    .sort(newestFirst)
+    .slice(0, TODO_COMPLETED_LIMIT);
+  return [...open, ...completed];
+}
 
 /** The view named in the address, or "To do" when it is missing or unknown. */
 export function findView(key: string | undefined): OrderView {

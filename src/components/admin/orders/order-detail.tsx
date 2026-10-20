@@ -380,11 +380,7 @@ export function OrderDetail({ order, items, demo }: OrderDetailProps) {
           <h1 className="font-display text-2xl font-bold">
             Order #{order.order_number}
           </h1>
-          <OrderStatusBadge
-            status={order.status}
-            fulfillmentType={order.fulfillment_type}
-            className="text-sm"
-          />
+          <OrderStatusBadge status={order.status} className="text-sm" />
           {order.is_rush && <RushBadge />}
           {order.square_environment === "sandbox" && <SandboxBadge />}
         </div>

@@ -8,9 +8,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import type { Order, OrderItem, OrderStatus } from "@/types/orders";
-import type {
-  OrderListRow,
-  OrderView,
+import {
+  OPEN_STATUSES,
+  TODO_COMPLETED_LIMIT,
+  arrangeTodo,
+  type OrderListRow,
+  type OrderView,
 } from "@/components/admin/orders/order-flow";
 
 /** True only on a local computer that has asked for demo orders. */
@@ -70,30 +73,47 @@ export async function loadOrderList(view: OrderView): Promise<OrderListResult> {
       square_environment: order.square_environment,
       item_count: countJars(items),
     })).sort((a, b) => b.created_at.localeCompare(a.created_at));
+    const inView = statuses
+      ? all.filter((o) => statuses.includes(o.status))
+      : all;
     return {
-      orders: statuses ? all.filter((o) => statuses.includes(o.status)) : all,
+      orders: view.key === "todo" ? arrangeTodo(inView) : inView,
       anyOrders: all.length > 0,
       error: null,
     };
   }
 
   const supabase = await createClient();
-  let query = supabase
-    .from("orders")
-    .select(LIST_COLUMNS)
-    .order("created_at", { ascending: false })
-    .limit(LIST_LIMIT);
-  if (statuses) query = query.in("status", [...statuses]);
+  const listQuery = (only: readonly OrderStatus[] | null, limit: number) => {
+    const query = supabase
+      .from("orders")
+      .select(LIST_COLUMNS)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    return only ? query.in("status", [...only]) : query;
+  };
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("Loading the order list failed:", error.message);
+  // "To do" loads open and completed orders apart, so a pile of completed
+  // orders can never push an open one off the list.
+  const results =
+    view.key === "todo"
+      ? await Promise.all([
+          listQuery(OPEN_STATUSES, LIST_LIMIT),
+          listQuery(["fulfilled"], TODO_COMPLETED_LIMIT),
+        ])
+      : [await listQuery(statuses, LIST_LIMIT)];
+
+  const failed = results.find((r) => r.error);
+  if (failed?.error) {
+    console.error("Loading the order list failed:", failed.error.message);
     return { orders: [], anyOrders: true, error: LOAD_ERROR };
   }
 
-  const orders = ((data ?? []) as ListQueryRow[]).map(
-    ({ order_items, ...row }) => ({ ...row, item_count: countJars(order_items) })
-  );
+  const rows = results.flatMap((r) => (r.data ?? []) as ListQueryRow[]);
+  const orders = rows.map(({ order_items, ...row }) => ({
+    ...row,
+    item_count: countJars(order_items),
+  }));
 
   // An empty tab could mean no orders at all, or just none in this tab.
   let anyOrders = orders.length > 0;

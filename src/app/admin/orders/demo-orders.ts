@@ -97,13 +97,45 @@ function item(
 }
 
 export const DEMO_ORDERS: DemoOrder[] = [
-  // Pickup, paid, waiting to be packed.
+  // Local delivery, delivered. The newest order, but completed, so it sits
+  // at the bottom of "To do".
+  {
+    order: {
+      ...blank,
+      id: "demo-1005",
+      order_number: 1005,
+      status: "fulfilled",
+      fulfillment_type: "local_delivery",
+      delivery_date: "2026-10-19",
+      customer_name: "Alex Fakename",
+      customer_email: "alex@example.com",
+      customer_phone: "555-0104",
+      address_line1: "321 Pretend Ln",
+      city: "Lakewood",
+      state: "CO",
+      postal_code: "80226",
+      delivery_miles: "3.2",
+      subtotal_cents: 1200,
+      delivery_fee_cents: 500,
+      tax_rate_bps: 750,
+      tax_jurisdiction: "Lakewood, CO",
+      tax_cents: 90,
+      total_cents: 1790,
+      created_at: "2026-10-19T15:10:00Z",
+      paid_at: "2026-10-19T15:10:30Z",
+      out_for_delivery_at: "2026-10-19T18:00:00Z",
+      fulfilled_at: "2026-10-19T18:40:00Z",
+      terms_accepted_at: "2026-10-19T15:09:00Z",
+    },
+    items: [item(7, "demo-1005", "Pickled Red Onions", "8oz", 1200, 1)],
+  },
+  // Pickup, packed and ready for the customer.
   {
     order: {
       ...blank,
       id: "demo-1004",
       order_number: 1004,
-      status: "paid",
+      status: "ready_for_pickup",
       fulfillment_type: "pickup",
       delivery_date: "2026-10-22",
       pickup_instructions:
@@ -119,6 +151,7 @@ export const DEMO_ORDERS: DemoOrder[] = [
       total_cents: 3225,
       created_at: "2026-10-19T14:05:00Z",
       paid_at: "2026-10-19T14:05:30Z",
+      ready_at: "2026-10-19T16:30:00Z",
       terms_accepted_at: "2026-10-19T14:04:10Z",
     },
     items: [item(1, "demo-1004", "Spicy Dill Pickles", "16oz", 1500, 2)],

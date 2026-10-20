@@ -61,7 +61,7 @@ export async function updateOrderStatus(
 
   if (!canMove(type, current, nextStatus)) {
     return {
-      error: `This order is "${statusLabel(current, type)}", so it can't be marked "${statusLabel(nextStatus, type)}". Reload the page to see where it stands.`,
+      error: `This order is "${statusLabel(current)}", so it can't be marked "${statusLabel(nextStatus)}". Reload the page to see where it stands.`,
     };
   }
   if (nextStatus === "shipped" && !order.tracking_number?.trim()) {

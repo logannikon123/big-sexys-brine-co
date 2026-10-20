@@ -22,7 +22,8 @@ export default async function AdminOrdersPage({
       <div>
         <h1 className="font-display text-2xl font-bold">Orders</h1>
         <p className="text-sm text-muted-foreground">
-          Newest first. Tap an order to see what to pack and mark it done.
+          Newest first. In To do, completed orders sit at the bottom. Tap an
+          order to see what to pack and what to do next.
         </p>
       </div>
       <OrderList
