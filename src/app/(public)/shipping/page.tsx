@@ -10,7 +10,7 @@ import {
 import type { Metadata } from "next";
 
 const description =
-  "How to get your jars from Big Sexy's Brine Co.: pickup in Wheat Ridge, local delivery in the Denver metro area, or shipping to Colorado addresses.";
+  "How to get your jars from Big Sexy's Brine Co.: pickup in Lakewood, local delivery in the Denver metro area, or shipping to Colorado addresses.";
 
 export const metadata: Metadata = {
   title: "Shipping, Delivery and Pickup",
@@ -34,20 +34,22 @@ export default function ShippingPage() {
       eyebrow="Getting Your Jars"
       title="Shipping, Delivery and Pickup"
       lastUpdated="October 2026"
-      intro="You can pick up your order in Wheat Ridge, have us deliver it in parts of the Denver metro area, or have it shipped to a Colorado address."
+      intro="You can pick up your order in Lakewood, have us deliver it in the Denver metro area, or have it shipped to a Colorado address."
     >
       <PolicySection title="Three ways to get your order">
         <PolicyList>
           <li>
-            <strong className="text-brand-cream">Local pickup in Wheat Ridge.</strong>{" "}
-            Choose pickup at checkout. We send the pickup address and times
-            with your order confirmation.
+            <strong className="text-brand-cream">Local pickup in Lakewood.</strong>{" "}
+            Choose pickup at checkout. Checkout shows the pickup spot and hours,
+            and we include them in your order confirmation.
           </li>
           <li>
             <strong className="text-brand-cream">Local delivery.</strong> We
-            deliver to parts of the Denver metro area. Enter your ZIP code at
-            checkout to see if we deliver to you, what it costs and which days
-            we deliver.
+            deliver across the Denver metro area. The fee depends on the driving
+            distance from our kitchen, and checkout shows it once you enter your
+            address. Standard delivery arrives within a few days of your order;
+            you can pick an earlier date for an extra rush fee, also shown at
+            checkout.
           </li>
           <li>
             <strong className="text-brand-cream">Shipping.</strong> We ship to

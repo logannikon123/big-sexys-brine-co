@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { updateStoreSettings } from "@/app/admin/actions";
+import { calculateDeliveryFee } from "@/lib/delivery-fee";
 import {
   SHIPPING_SERVICES,
   US_STATE_CODES,
@@ -41,6 +42,37 @@ function wholeNumber(text: string): number {
 /** A number with up to two decimal places, or NaN. */
 function decimalNumber(text: string): number {
   return /^\d+(\.\d{1,2})?$/.test(text.trim()) ? Number(text.trim()) : NaN;
+}
+
+/** 1000 becomes "$10", 1050 becomes "$10.50". */
+function formatDollars(cents: number): string {
+  return cents % 100 === 0 ? `$${cents / 100}` : `$${centsToDollars(cents)}`;
+}
+
+/**
+ * The example line under the delivery prices, worked out from what is typed
+ * right now. Returns null until the three numbers make sense.
+ */
+function deliveryExample(
+  maxMilesText: string,
+  stepMilesText: string,
+  stepFeeText: string
+): string | null {
+  const maxMiles = decimalNumber(maxMilesText);
+  const stepMiles = decimalNumber(stepMilesText);
+  const stepFee = dollarsToCents(stepFeeText);
+  if (!(maxMiles > 0) || !(stepMiles > 0) || stepFee === null) return null;
+  const miles = Math.min(10, maxMiles);
+  const fee = calculateDeliveryFee(miles, 0, false, {
+    delivery_max_miles: maxMiles,
+    delivery_step_miles: stepMiles,
+    delivery_fee_per_step_cents: stepFee,
+    rush_fee_cents: 0,
+    free_delivery_enabled: false,
+    free_delivery_max_miles: null,
+    free_delivery_min_order_cents: null,
+  });
+  return `Example: a customer ${miles} miles away pays ${formatDollars(fee.totalFeeCents)}. Farther than ${maxMiles} miles can't choose delivery.`;
 }
 
 function Help({ children }: { children: React.ReactNode }) {
@@ -146,19 +178,36 @@ export function StoreSettingsForm({ settings }: StoreSettingsFormProps) {
   const [deliveryEnabled, setDeliveryEnabled] = useState(
     settings.delivery_enabled
   );
-  const [deliveryZips, setDeliveryZips] = useState(
-    settings.delivery_zip_codes.join(", ")
+  const [maxMiles, setMaxMiles] = useState(
+    String(settings.delivery_max_miles)
   );
-  const [deliveryFee, setDeliveryFee] = useState(
-    centsToDollars(settings.delivery_fee_cents)
+  const [stepMiles, setStepMiles] = useState(
+    String(settings.delivery_step_miles)
+  );
+  const [stepFee, setStepFee] = useState(
+    centsToDollars(settings.delivery_fee_per_step_cents)
+  );
+  const [standardHours, setStandardHours] = useState(
+    String(settings.delivery_standard_hours)
+  );
+  const [rushFee, setRushFee] = useState(
+    centsToDollars(settings.rush_fee_cents)
   );
   const [deliveryMin, setDeliveryMin] = useState(
     centsToDollars(settings.delivery_min_order_cents)
   );
-  const [deliveryFreeOver, setDeliveryFreeOver] = useState(
-    settings.delivery_free_over_cents === null
+  const [freeEnabled, setFreeEnabled] = useState(
+    settings.free_delivery_enabled
+  );
+  const [freeMaxMiles, setFreeMaxMiles] = useState(
+    settings.free_delivery_max_miles === null
       ? ""
-      : centsToDollars(settings.delivery_free_over_cents)
+      : String(settings.free_delivery_max_miles)
+  );
+  const [freeMinOrder, setFreeMinOrder] = useState(
+    settings.free_delivery_min_order_cents === null
+      ? ""
+      : centsToDollars(settings.free_delivery_min_order_cents)
   );
   const [deliveryInstructions, setDeliveryInstructions] = useState(
     settings.delivery_instructions
@@ -208,13 +257,6 @@ export function StoreSettingsForm({ settings }: StoreSettingsFormProps) {
 
     // Check the typed lists first, so the message can name the bad entries.
     const listProblems: string[] = [];
-    const zips = splitList(deliveryZips);
-    const badZips = zips.filter((zip) => !/^\d{5}$/.test(zip));
-    if (badZips.length > 0) {
-      listProblems.push(
-        `These delivery ZIP codes aren't 5 digits: ${badZips.join(", ")}`
-      );
-    }
     const states = splitList(shippingStates.toUpperCase());
     const badStates = states.filter(
       (state) => !(US_STATE_CODES as readonly string[]).includes(state)
@@ -235,14 +277,23 @@ export function StoreSettingsForm({ settings }: StoreSettingsFormProps) {
       pickup_enabled: pickupEnabled,
       pickup_instructions: pickupInstructions.trim(),
       delivery_enabled: deliveryEnabled,
-      delivery_zip_codes: zips,
-      delivery_fee_cents: dollarsToCents(deliveryFee) ?? NaN,
       delivery_min_order_cents: dollarsToCents(deliveryMin) ?? NaN,
-      delivery_free_over_cents:
-        deliveryFreeOver.trim() === ""
-          ? null
-          : dollarsToCents(deliveryFreeOver) ?? NaN,
       delivery_instructions: deliveryInstructions.trim(),
+      delivery_max_miles: decimalNumber(maxMiles),
+      delivery_step_miles: decimalNumber(stepMiles),
+      delivery_fee_per_step_cents: dollarsToCents(stepFee) ?? NaN,
+      delivery_standard_hours: wholeNumber(standardHours),
+      rush_fee_cents: dollarsToCents(rushFee) ?? NaN,
+      free_delivery_enabled: freeEnabled,
+      // The two free delivery fields only count while the switch is on.
+      free_delivery_max_miles:
+        !freeEnabled || freeMaxMiles.trim() === ""
+          ? null
+          : decimalNumber(freeMaxMiles),
+      free_delivery_min_order_cents:
+        !freeEnabled || freeMinOrder.trim() === ""
+          ? null
+          : dollarsToCents(freeMinOrder) ?? NaN,
       shipping_enabled: shippingEnabled,
       shipping_states: states,
       ship_from_zip: shipFromZip.trim(),
@@ -278,8 +329,7 @@ export function StoreSettingsForm({ settings }: StoreSettingsFormProps) {
         setProblems([result.error]);
         toast.error(result.error);
       } else {
-        // Show the lists as saved: repeats removed, state codes in capitals.
-        setDeliveryZips(zips.join(", "));
+        // Show the list as saved: repeats removed, state codes in capitals.
         setShippingStates(states.join(", "));
         toast.success("Store settings saved");
       }
@@ -291,6 +341,8 @@ export function StoreSettingsForm({ settings }: StoreSettingsFormProps) {
       setSaving(false);
     }
   };
+
+  const example = deliveryExample(maxMiles, stepMiles, stepFee);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -359,36 +411,63 @@ export function StoreSettingsForm({ settings }: StoreSettingsFormProps) {
         <CardHeader>
           <CardTitle>Local delivery</CardTitle>
           <CardDescription>
-            You drive the order to the customer. Only the ZIP codes you list
-            can choose delivery.
+            You drive the order to the customer. The price depends on how far
+            away they are, measured one way by road from your delivery
+            starting point (the private box at the bottom of this page).
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           <SwitchRow
             id="delivery_enabled"
             checked={deliveryEnabled}
             onChange={setDeliveryEnabled}
             label="Offer local delivery"
           />
+
           <div className="space-y-2">
-            <Label htmlFor="delivery_zip_codes">ZIP codes you deliver to</Label>
-            <Textarea
-              id="delivery_zip_codes"
-              value={deliveryZips}
-              onChange={(e) => setDeliveryZips(e.target.value)}
-              placeholder="80202, 80203, 80204"
-            />
-            <Help>
-              Type 5-digit ZIP codes, separated by commas, spaces or new lines.
-            </Help>
+            <div className="grid gap-4 sm:grid-cols-3">
+              <NumberField
+                id="delivery_max_miles"
+                label="Farthest you deliver (miles)"
+                value={maxMiles}
+                onChange={setMaxMiles}
+                help="One way. Customers farther away can't choose delivery."
+              />
+              <MoneyField
+                id="delivery_step_fee"
+                label="Price per step"
+                value={stepFee}
+                onChange={setStepFee}
+                help="Charged for each step of miles, or part of one."
+              />
+              <NumberField
+                id="delivery_step_miles"
+                label="Miles in each step"
+                value={stepMiles}
+                onChange={setStepMiles}
+                help="With $5 and 6 miles: up to 6 miles costs $5, up to 12 costs $10."
+              />
+            </div>
+            <p className="rounded-md bg-muted p-3 text-sm">
+              {example ??
+                "Fill in the distance, price and step to see an example."}
+            </p>
           </div>
+
           <div className="grid gap-4 sm:grid-cols-3">
+            <NumberField
+              id="delivery_standard_hours"
+              label="Standard delivery window (hours)"
+              value={standardHours}
+              onChange={setStandardHours}
+              help="How soon you promise to deliver. 72 hours is 3 days."
+            />
             <MoneyField
-              id="delivery_fee"
-              label="Delivery fee"
-              value={deliveryFee}
-              onChange={setDeliveryFee}
-              help="What each delivery order pays."
+              id="rush_fee"
+              label="Rush fee"
+              value={rushFee}
+              onChange={setRushFee}
+              help="Charged when the customer picks a date sooner than the standard window."
             />
             <MoneyField
               id="delivery_min"
@@ -397,14 +476,39 @@ export function StoreSettingsForm({ settings }: StoreSettingsFormProps) {
               onChange={setDeliveryMin}
               help="Orders below this can't choose delivery. 0 means any size."
             />
-            <MoneyField
-              id="delivery_free_over"
-              label="Free delivery on orders over"
-              value={deliveryFreeOver}
-              onChange={setDeliveryFreeOver}
-              placeholder="Never free"
-              help="Leave blank if delivery is never free."
+          </div>
+
+          <div className="space-y-4">
+            <SwitchRow
+              id="free_delivery_enabled"
+              checked={freeEnabled}
+              onChange={setFreeEnabled}
+              label="Offer free delivery"
             />
+            {freeEnabled ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <NumberField
+                    id="free_delivery_max_miles"
+                    label="Within this many miles"
+                    value={freeMaxMiles}
+                    onChange={setFreeMaxMiles}
+                  />
+                  <MoneyField
+                    id="free_delivery_min_order"
+                    label="On orders of this much or more"
+                    value={freeMinOrder}
+                    onChange={setFreeMinOrder}
+                  />
+                </div>
+                <Help>
+                  Delivery is free only when the customer is close enough AND
+                  the order is big enough. A rush fee still applies.
+                </Help>
+              </>
+            ) : (
+              <Help>Off: every delivery pays the distance price.</Help>
+            )}
           </div>
           <div className="space-y-2">
             <Label htmlFor="delivery_instructions">Delivery instructions</Label>
