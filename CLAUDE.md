@@ -189,7 +189,8 @@ requests like any other: checks must pass, and Jesse approves the merge.
 - `.env.example` is committed on purpose and holds placeholders only. When you add a new setting, add
   its name to `.env.example` with a placeholder value, never the real one.
 - `SUPABASE_SERVICE_ROLE_KEY` bypasses all database security. Use it only in server code that needs it
-  (today, only `src/app/api/contest/route.ts`), and never in anything sent to the browser.
+  (today, only `src/app/api/contest/route.ts`), and never in anything sent to the browser. Checkout and
+  the Square webhook (both coming) will also use it, because they are the only code that writes orders.
 - Production values are set in Vercel. Change them there, then ask Jesse whether to redeploy.
 - Online ordering (coming soon) adds these settings: `NEXT_PUBLIC_SQUARE_APPLICATION_ID`,
   `NEXT_PUBLIC_SQUARE_LOCATION_ID`, `NEXT_PUBLIC_SQUARE_ENVIRONMENT`, `SQUARE_ACCESS_TOKEN`,

@@ -177,6 +177,124 @@ CREATE TABLE IF NOT EXISTS store_private_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Online orders (see supabase/migrations/20261020030648_orders_tables.sql).
+-- One row for each checkout, paid or not. Money in cents, tax rate in
+-- hundredths of a percent. Names, prices, fees and pickup instructions are
+-- copied in at checkout so later edits never change an old order. Holds
+-- customers' personal details: admins only. Checkout and the Square webhook
+-- write with the service role key.
+CREATE TABLE IF NOT EXISTS orders (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  order_number INTEGER GENERATED ALWAYS AS IDENTITY (START WITH 1001) UNIQUE,
+  public_token TEXT UNIQUE NOT NULL DEFAULT encode(extensions.gen_random_bytes(24), 'hex'),
+  checkout_id UUID UNIQUE NOT NULL,
+
+  status TEXT NOT NULL DEFAULT 'pending_payment' CHECK (status IN (
+    'pending_payment', 'payment_failed', 'paid', 'ready_for_pickup',
+    'out_for_delivery', 'shipped', 'fulfilled', 'cancelled', 'refunded',
+    'partially_refunded', 'disputed'
+  )),
+
+  -- Fulfillment
+  fulfillment_type TEXT NOT NULL CHECK (fulfillment_type IN ('pickup', 'local_delivery', 'shipping')),
+  delivery_date DATE,
+  is_rush BOOLEAN NOT NULL DEFAULT false,
+  pickup_instructions TEXT,
+
+  -- Customer
+  customer_name TEXT NOT NULL,
+  customer_email TEXT NOT NULL,
+  customer_phone TEXT,
+  address_line1 TEXT,
+  address_line2 TEXT,
+  city TEXT,
+  state TEXT,
+  postal_code TEXT,
+  customer_notes TEXT,
+  admin_notes TEXT,
+
+  -- Geocoder match and distance, for the delivery fee and sales tax
+  geo_matched_address TEXT,
+  geo_lat DOUBLE PRECISION,
+  geo_lon DOUBLE PRECISION,
+  geo_place_geoid TEXT,
+  geo_place_name TEXT,
+  geo_county_fips TEXT,
+  delivery_miles NUMERIC(6,2) CHECK (delivery_miles >= 0),
+  distance_method TEXT,
+
+  -- Money, in cents. discount_cents is set by checkout only; a fee waived
+  -- after payment is a partial refund in Square, recorded in refunded_cents.
+  subtotal_cents INTEGER NOT NULL DEFAULT 0 CHECK (subtotal_cents >= 0),
+  delivery_fee_cents INTEGER NOT NULL DEFAULT 0 CHECK (delivery_fee_cents >= 0),
+  rush_fee_cents INTEGER NOT NULL DEFAULT 0 CHECK (rush_fee_cents >= 0),
+  packing_fee_cents INTEGER NOT NULL DEFAULT 0 CHECK (packing_fee_cents >= 0),
+  shipping_postage_cents INTEGER NOT NULL DEFAULT 0 CHECK (shipping_postage_cents >= 0),
+  discount_cents INTEGER NOT NULL DEFAULT 0 CHECK (discount_cents >= 0),
+  tax_cents INTEGER NOT NULL DEFAULT 0 CHECK (tax_cents >= 0),
+  total_cents INTEGER NOT NULL DEFAULT 0 CHECK (total_cents >= 0),
+  tax_rate_bps INTEGER CHECK (tax_rate_bps >= 0 AND tax_rate_bps <= 10000),
+  tax_jurisdiction TEXT,
+  refunded_cents INTEGER NOT NULL DEFAULT 0 CHECK (refunded_cents >= 0),
+  currency TEXT NOT NULL DEFAULT 'USD',
+
+  -- Square
+  square_order_id TEXT UNIQUE,
+  square_payment_id TEXT UNIQUE,
+  square_receipt_url TEXT,
+  card_brand TEXT,
+  card_last4 TEXT,
+  payment_error_code TEXT,
+  square_environment TEXT CHECK (square_environment IN ('sandbox', 'production')),
+
+  -- Shipping
+  tracking_number TEXT,
+  tracking_carrier TEXT DEFAULT 'USPS',
+
+  -- Consent and new-order alert
+  terms_accepted_at TIMESTAMPTZ,
+  terms_version TEXT,
+  alerted_at TIMESTAMPTZ,
+
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  paid_at TIMESTAMPTZ,
+  ready_at TIMESTAMPTZ,
+  out_for_delivery_at TIMESTAMPTZ,
+  shipped_at TIMESTAMPTZ,
+  fulfilled_at TIMESTAMPTZ,
+  cancelled_at TIMESTAMPTZ,
+
+  CONSTRAINT orders_total_adds_up CHECK (
+    total_cents = subtotal_cents + delivery_fee_cents + rush_fee_cents
+      + packing_fee_cents + shipping_postage_cents + tax_cents - discount_cents
+  ),
+  CONSTRAINT orders_refund_not_over_total CHECK (refunded_cents <= total_cents)
+);
+
+-- The jars in each order, copied at checkout. product_id is cleared if the
+-- product is deleted; the copied name, size and price remain.
+CREATE TABLE IF NOT EXISTS order_items (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  product_name TEXT NOT NULL,
+  product_size TEXT,
+  unit_price_cents INTEGER NOT NULL CHECK (unit_price_cents >= 0),
+  quantity INTEGER NOT NULL CHECK (quantity > 0),
+  line_total_cents INTEGER NOT NULL,
+  CONSTRAINT order_items_line_total_adds_up CHECK (line_total_cents = unit_price_cents * quantity)
+);
+
+-- Every message Square sends, saved by its id so a repeat is skipped.
+CREATE TABLE IF NOT EXISTS square_webhook_events (
+  event_id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ,
+  payload JSONB
+);
+
 -- Updated_at trigger for products
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -201,11 +319,20 @@ CREATE TRIGGER store_private_settings_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at();
 
+CREATE TRIGGER orders_updated_at
+  BEFORE UPDATE ON orders
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_product_categories_product ON product_categories(product_id);
 CREATE INDEX IF NOT EXISTS idx_product_categories_category ON product_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_events_is_recurring ON events(is_recurring);
 CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);
+CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id);
 
 -- Row Level Security
 ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
@@ -219,9 +346,23 @@ ALTER TABLE product_images ENABLE ROW LEVEL SECURITY;
 ALTER TABLE contest_entries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE store_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE store_private_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE square_webhook_events ENABLE ROW LEVEL SECURITY;
 
 -- Signed-out visitors get no access to the private settings at all.
 REVOKE ALL ON store_private_settings FROM anon;
+
+-- Orders: signed-out visitors get nothing. Signed-in users may read, and
+-- change only the order columns below; the admin rules further down limit
+-- both to admins. Only the service role adds or deletes rows.
+REVOKE ALL ON orders, order_items, square_webhook_events FROM anon, authenticated;
+GRANT SELECT ON orders, order_items, square_webhook_events TO authenticated;
+GRANT UPDATE (
+  status, admin_notes, tracking_number, tracking_carrier,
+  ready_at, out_for_delivery_at, shipped_at, fulfilled_at, cancelled_at
+) ON orders TO authenticated;
+REVOKE ALL ON SEQUENCE orders_order_number_seq, order_items_id_seq FROM anon, authenticated;
 
 -- Public read access (for the website)
 CREATE POLICY "Public read categories" ON categories FOR SELECT USING (true);
@@ -288,6 +429,15 @@ CREATE POLICY "Admin update store_private_settings" ON store_private_settings FO
 -- service role key, which skips these rules, so there is no public insert rule.
 CREATE POLICY "Admin read contest entries" ON contest_entries FOR SELECT TO authenticated USING ((select public.is_admin()));
 CREATE POLICY "Admin delete contest entries" ON contest_entries FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+-- Orders hold names, emails, phone numbers and addresses. Admins may read
+-- them and update the workflow columns granted above. Checkout and the Square
+-- webhook write with the service role key, so there are no insert or delete
+-- rules.
+CREATE POLICY "Admin read orders" ON orders FOR SELECT TO authenticated USING ((select public.is_admin()));
+CREATE POLICY "Admin update orders" ON orders FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin read order_items" ON order_items FOR SELECT TO authenticated USING ((select public.is_admin()));
+CREATE POLICY "Admin read square_webhook_events" ON square_webhook_events FOR SELECT TO authenticated USING ((select public.is_admin()));
 
 -- Default categories
 INSERT INTO categories (name, slug, sort_order) VALUES
