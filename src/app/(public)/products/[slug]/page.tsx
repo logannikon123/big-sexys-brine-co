@@ -11,6 +11,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { toPlainText } from "@/lib/plain-text";
+import { CottageFoodNotice } from "@/components/legal/CottageFoodNotice";
 
 // Revalidate every 60 seconds — ensures revalidatePath() from admin
 // actions actually busts the edge cache for these pages.
@@ -160,6 +161,8 @@ export default async function ProductDetailPage({
                 </Link>
               </div>
             </div>
+
+            <CottageFoodNotice />
           </div>
         </div>
 
