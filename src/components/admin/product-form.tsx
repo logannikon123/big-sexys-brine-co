@@ -37,6 +37,9 @@ interface ProductFormProps {
     category: string;
     image_url: string | null;
     featured: boolean;
+    price_cents?: number | null;
+    sold_online?: boolean;
+    sold_out?: boolean;
   };
   categories: Category[];
   initialCategoryIds?: number[];
@@ -64,6 +67,15 @@ export function ProductForm({
     useState<number[]>(initialCategoryIds);
   const [images, setImages] = useState<ProductImage[]>(initialImages);
   const [featured, setFeatured] = useState(product?.featured ?? false);
+  // Price is typed in dollars and saved in cents.
+  const [price, setPrice] = useState(
+    product?.price_cents != null ? (product.price_cents / 100).toFixed(2) : ""
+  );
+  const [soldOnline, setSoldOnline] = useState(product?.sold_online ?? false);
+  const [soldOut, setSoldOut] = useState(product?.sold_out ?? false);
+  const priceCents = price.trim() === "" ? null : Math.round(Number(price) * 100);
+  const priceInvalid = priceCents !== null && (!Number.isFinite(priceCents) || priceCents < 0);
+  const needsPrice = soldOnline && priceCents === null;
 
   const generateSlug = (name: string) => {
     return name
@@ -111,6 +123,9 @@ export function ProductForm({
       category_ids: selectedCategoryIds,
       image_url: primaryImage?.url ?? null,
       featured,
+      price_cents: priceCents,
+      sold_online: soldOnline,
+      sold_out: soldOut,
       images: images.map((img) => ({
         url: img.url,
         alt: img.alt,
@@ -166,15 +181,61 @@ export function ProductForm({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="size">Size</Label>
-            <Input
-              id="size"
-              value={size}
-              onChange={(e) => setSize(e.target.value)}
-              placeholder='e.g., 32oz (1QT)'
-              required
-            />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="size">Size</Label>
+              <Input
+                id="size"
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+                placeholder='e.g., 32oz (1QT)'
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="price">Price ($)</Label>
+              <Input
+                id="price"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="e.g., 15.00"
+                aria-describedby="price-help"
+              />
+              <p id="price-help" className="text-xs text-muted-foreground">
+                What online shoppers pay for one jar. Leave blank if it isn&apos;t sold online.
+              </p>
+              {priceInvalid && (
+                <p className="text-xs text-destructive">Enter a price like 15 or 15.00.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex items-start gap-3">
+              <Switch id="sold-online" checked={soldOnline} onCheckedChange={setSoldOnline} />
+              <div className="space-y-1">
+                <Label htmlFor="sold-online">Sell online</Label>
+                <p className="text-xs text-muted-foreground">
+                  Shoppers will be able to order this jar once online ordering opens.
+                </p>
+                {needsPrice && (
+                  <p className="text-xs text-destructive">Add a price to sell this online.</p>
+                )}
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <Switch id="sold-out" checked={soldOut} onCheckedChange={setSoldOut} />
+              <div className="space-y-1">
+                <Label htmlFor="sold-out">Sold out</Label>
+                <p className="text-xs text-muted-foreground">
+                  Turn on to pause online orders for this jar until it&apos;s back in stock.
+                </p>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-2">
@@ -273,7 +334,10 @@ export function ProductForm({
       </Card>
 
       <div className="flex gap-3">
-        <Button type="submit" disabled={saving || selectedCategoryIds.length === 0}>
+        <Button
+          type="submit"
+          disabled={saving || selectedCategoryIds.length === 0 || priceInvalid || needsPrice}
+        >
           {saving ? "Saving..." : product ? "Update Product" : "Create Product"}
         </Button>
         <Button

@@ -20,6 +20,10 @@ export interface Product {
   image: string;
   images?: ProductImage[];
   featured?: boolean;
+  /** Price in cents. Null when the product has no online price. */
+  priceCents?: number | null;
+  soldOnline?: boolean;
+  soldOut?: boolean;
 }
 
 export interface Event {

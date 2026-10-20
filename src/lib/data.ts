@@ -322,5 +322,8 @@ function mapProduct(row: Record<string, unknown>): Product {
     category: row.category as Product["category"],
     image: (row.image_url as string) ?? (row.image as string) ?? "",
     featured: row.featured as boolean | undefined,
+    priceCents: (row.price_cents as number | null | undefined) ?? null,
+    soldOnline: (row.sold_online as boolean | undefined) ?? false,
+    soldOut: (row.sold_out as boolean | undefined) ?? false,
   };
 }

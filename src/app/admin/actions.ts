@@ -146,6 +146,9 @@ export async function createProduct(data: {
   category_ids: number[];
   image_url: string | null;
   featured: boolean;
+  price_cents: number | null;
+  sold_online: boolean;
+  sold_out: boolean;
   images?: { url: string; alt: string | null; sort_order: number; is_primary: boolean }[];
 }) {
   await requireAuthAction();
@@ -186,6 +189,9 @@ export async function updateProduct(
     category_ids: number[];
     image_url: string | null;
     featured: boolean;
+    price_cents: number | null;
+    sold_online: boolean;
+    sold_out: boolean;
     images?: { url: string; alt: string | null; sort_order: number; is_primary: boolean }[];
   }
 ) {
