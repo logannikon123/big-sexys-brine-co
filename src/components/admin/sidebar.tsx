@@ -12,6 +12,7 @@ import {
   Images,
   Tags,
   Store,
+  Percent,
   RefreshCcw,
   LogOut,
   Menu,
@@ -32,6 +33,7 @@ const navItems = [
   { href: "/admin/class", label: "Class Info", icon: GraduationCap },
   { href: "/admin/gallery", label: "Gallery", icon: Images },
   { href: "/admin/store", label: "Store settings", icon: Store },
+  { href: "/admin/tax", label: "Sales tax", icon: Percent },
   { href: "/admin/cache", label: "Cache", icon: RefreshCcw },
 ];
 
