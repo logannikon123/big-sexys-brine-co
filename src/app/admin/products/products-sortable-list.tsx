@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Pencil } from "lucide-react";
+import { formatPrice } from "@/lib/utils";
 import { ProductDeleteButton } from "./product-delete-button";
 import { SortableList } from "@/components/admin/sortable-list";
 import { updateProductOrder } from "../actions";
@@ -20,6 +21,9 @@ interface Product {
   category: string;
   image_url: string | null;
   featured: boolean;
+  price_cents: number | null;
+  sold_online: boolean;
+  sold_out: boolean;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -39,6 +43,14 @@ export function ProductsSortableList({ products }: { products: Product[] }) {
           <span className="text-sm text-muted-foreground w-16 text-center">
             {product.size}
           </span>
+          <span className="text-sm w-16 text-right tabular-nums">
+            {product.price_cents != null ? formatPrice(product.price_cents) : "No price"}
+          </span>
+          {product.sold_out ? (
+            <Badge variant="destructive">Sold out</Badge>
+          ) : product.sold_online ? (
+            <Badge variant="outline">Online</Badge>
+          ) : null}
           <span className="text-sm w-16 text-center">
             {"🔥".repeat(product.heat)}
             {product.heat === 0 && (

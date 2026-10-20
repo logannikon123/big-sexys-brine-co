@@ -23,9 +23,13 @@ CREATE TABLE IF NOT EXISTS products (
   category TEXT NOT NULL DEFAULT 'Signature',
   image_url TEXT,
   featured BOOLEAN NOT NULL DEFAULT FALSE,
+  price_cents INTEGER CHECK (price_cents IS NULL OR price_cents >= 0),
+  sold_online BOOLEAN NOT NULL DEFAULT FALSE,
+  sold_out BOOLEAN NOT NULL DEFAULT FALSE,
   sort_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT products_online_needs_price CHECK (NOT sold_online OR price_cents IS NOT NULL)
 );
 
 -- Product-Categories junction table (many-to-many)
@@ -239,7 +243,8 @@ BEGIN
 
   IF v_id IS NULL THEN
     INSERT INTO public.products
-      (name, slug, size, tagline, description, ingredients, heat, category, image_url, featured, sort_order)
+      (name, slug, size, tagline, description, ingredients, heat, category, image_url, featured,
+       price_cents, sold_online, sold_out, sort_order)
     VALUES (
       p_product ->> 'name',
       p_product ->> 'slug',
@@ -251,6 +256,9 @@ BEGIN
       p_product ->> 'category',
       p_product ->> 'image_url',
       coalesce((p_product ->> 'featured')::boolean, false),
+      (p_product ->> 'price_cents')::integer,
+      coalesce((p_product ->> 'sold_online')::boolean, false),
+      coalesce((p_product ->> 'sold_out')::boolean, false),
       (SELECT coalesce(max(sort_order), -1) + 1 FROM public.products)
     )
     RETURNING id INTO v_id;
@@ -265,7 +273,13 @@ BEGIN
       heat = coalesce((p_product ->> 'heat')::integer, 0),
       category = p_product ->> 'category',
       image_url = p_product ->> 'image_url',
-      featured = coalesce((p_product ->> 'featured')::boolean, false)
+      featured = coalesce((p_product ->> 'featured')::boolean, false),
+      price_cents = CASE WHEN p_product ? 'price_cents'
+        THEN (p_product ->> 'price_cents')::integer ELSE price_cents END,
+      sold_online = CASE WHEN p_product ? 'sold_online'
+        THEN coalesce((p_product ->> 'sold_online')::boolean, false) ELSE sold_online END,
+      sold_out = CASE WHEN p_product ? 'sold_out'
+        THEN coalesce((p_product ->> 'sold_out')::boolean, false) ELSE sold_out END
     WHERE id = v_id;
 
     IF NOT FOUND THEN
