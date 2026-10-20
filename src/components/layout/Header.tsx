@@ -7,6 +7,7 @@ import { Menu, X, Phone } from "lucide-react";
 import { Container } from "./Container";
 import { cn } from "@/lib/utils";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
+import { CartButton } from "@/components/cart/CartButton";
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -18,7 +19,12 @@ const navLinks = [
   { href: "/contest", label: "Win a Jar!" },
 ];
 
-export function Header() {
+interface HeaderProps {
+  /** Show the cart button. False until online ordering opens. */
+  orderingAvailable?: boolean;
+}
+
+export function Header({ orderingAvailable = false }: HeaderProps) {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -66,20 +72,41 @@ export function Header() {
           </div>
 
           <div className="hidden lg:flex items-center gap-4">
-            <a
-              href="tel:+17203540527"
-              className="inline-flex items-center gap-1.5 text-sm text-brand-cream/60 hover:text-brand-orange transition-colors"
-            >
-              <Phone size={14} />
-              (720) 354-0527
-            </a>
+            {/* With the cart button the full number no longer fits, so show
+                just the phone icon. The number stays in the footer. */}
+            {orderingAvailable ? (
+              <a
+                href="tel:+17203540527"
+                aria-label="Call (720) 354-0527"
+                title="(720) 354-0527"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-brand-cream/60 hover:text-brand-orange hover:bg-white/5 transition-colors"
+              >
+                <Phone size={18} />
+              </a>
+            ) : (
+              <a
+                href="tel:+17203540527"
+                className="inline-flex items-center gap-1.5 text-sm text-brand-cream/60 hover:text-brand-orange transition-colors"
+              >
+                <Phone size={14} />
+                (720) 354-0527
+              </a>
+            )}
             <Link
               href="/contact"
               className="inline-flex items-center px-5 py-2.5 bg-brand-orange text-white text-sm font-semibold rounded-full hover:bg-brand-orange/90 transition-colors"
             >
               Say Hello
             </Link>
+            {orderingAvailable && <CartButton />}
           </div>
+
+          {/* Mobile cart button, beside the menu button */}
+          {orderingAvailable && (
+            <div className="ml-auto mr-1 lg:hidden">
+              <CartButton />
+            </div>
+          )}
 
           {/* Mobile Nav */}
           <Sheet open={open} onOpenChange={setOpen}>

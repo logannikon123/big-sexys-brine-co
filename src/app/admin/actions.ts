@@ -428,6 +428,9 @@ export async function updateStoreSettings(
     return { error: "The store settings weren't saved. The settings row is missing, or this account can't change it." };
   }
   revalidatePath("/admin/store");
+  // The public pages show or hide the cart depending on these settings.
+  revalidatePath("/", "layout");
+  revalidateTag("store-settings", { expire: 0 });
   return {};
 }
 

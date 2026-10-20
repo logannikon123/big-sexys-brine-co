@@ -1,6 +1,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { unstable_cache } from "next/cache";
 import type { Product, ProductImage, Event, ClassInfo, Testimonial } from "@/types";
+import type { StoreSettings } from "@/lib/store-settings";
 
 // Fallback to JSON files if Supabase is not configured
 const useSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -307,6 +308,49 @@ export const getTestimonials = unstable_cache(
   ["testimonials-all"],
   { tags: ["testimonials"], revalidate: 60 }
 );
+
+// Store settings
+/** The store settings the public site needs. Anyone can read these. */
+export type PublicStoreSettings = Pick<
+  StoreSettings,
+  | "orders_open"
+  | "pickup_enabled"
+  | "delivery_enabled"
+  | "shipping_enabled"
+  | "jars_per_box"
+  | "packing_fee_per_box_cents"
+>;
+
+const _getStoreSettingsUncached = async (): Promise<PublicStoreSettings | null> => {
+  if (!useSupabase) return null;
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from("store_settings")
+    .select(
+      "orders_open, pickup_enabled, delivery_enabled, shipping_enabled, jars_per_box, packing_fee_per_box_cents"
+    )
+    .eq("id", 1)
+    .maybeSingle();
+  return (data as PublicStoreSettings | null) ?? null;
+};
+
+/** Store settings, or null if they can't be read. Saving them in the admin clears this cache. */
+export const getStoreSettings = unstable_cache(
+  _getStoreSettingsUncached,
+  ["store-settings"],
+  { tags: ["store-settings"], revalidate: 60 }
+);
+
+/**
+ * True when customers can add jars to a cart: the admin has opened the
+ * store, or this computer previews ordering with
+ * NEXT_PUBLIC_ORDERING_PREVIEW=true (local preview only, never set in Vercel).
+ */
+export async function getOrderingAvailable(): Promise<boolean> {
+  if (process.env.NEXT_PUBLIC_ORDERING_PREVIEW === "true") return true;
+  const settings = await getStoreSettings();
+  return settings?.orders_open === true;
+}
 
 // Helper to map Supabase product row to Product type
 function mapProduct(row: Record<string, unknown>): Product {
