@@ -341,6 +341,27 @@ CREATE TABLE IF NOT EXISTS food_tax_rates (
   CONSTRAINT food_tax_rates_exempt_is_zero CHECK (taxes_food OR food_rate_bps = 0)
 );
 
+-- Each order's local food tax split by city and county, for the tax report
+-- (see supabase/migrations/20261021212459_order_tax_parts.sql). One row per
+-- place, copied from food_tax_rates at checkout. The rows for an order add
+-- up exactly to its tax_cents: each place's share is rounded to the nearest
+-- cent and the place with the highest rate takes any leftover cent. Orders
+-- that paid 0% because no rate was on file, and orders from before this
+-- table, have no rows. Admins only; checkout writes with the service role key.
+CREATE TABLE IF NOT EXISTS order_tax_parts (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  food_tax_rate_id BIGINT REFERENCES food_tax_rates(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('county', 'city', 'district')),
+  name TEXT NOT NULL CHECK (btrim(name) <> ''),
+  census_geoid TEXT,
+  collected_by TEXT CHECK (collected_by IN ('state', 'self')),
+  rate_bps INTEGER NOT NULL CHECK (rate_bps BETWEEN 0 AND 10000),
+  taxable_cents INTEGER NOT NULL CHECK (taxable_cents >= 0),
+  tax_cents INTEGER NOT NULL CHECK (tax_cents >= 0),
+  CONSTRAINT order_tax_parts_one_per_place UNIQUE (order_id, kind, name)
+);
+
 -- Updated_at trigger for products
 CREATE OR REPLACE FUNCTION update_updated_at()
 RETURNS TRIGGER AS $$
@@ -390,6 +411,9 @@ CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_a
 CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON order_items(order_id);
 CREATE INDEX IF NOT EXISTS idx_order_items_product_id ON order_items(product_id);
+CREATE INDEX IF NOT EXISTS idx_orders_paid_at ON orders(paid_at);
+CREATE INDEX IF NOT EXISTS idx_order_tax_parts_order_id ON order_tax_parts(order_id);
+CREATE INDEX IF NOT EXISTS idx_order_tax_parts_rate_id ON order_tax_parts(food_tax_rate_id);
 
 -- Row Level Security
 ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
@@ -409,6 +433,7 @@ ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE square_webhook_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_tax_rates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_tax_parts ENABLE ROW LEVEL SECURITY;
 
 -- Signed-out visitors get no access to the private settings at all.
 REVOKE ALL ON store_private_settings FROM anon;
@@ -423,6 +448,12 @@ GRANT UPDATE (
   ready_at, out_for_delivery_at, shipped_at, fulfilled_at, cancelled_at
 ) ON orders TO authenticated;
 REVOKE ALL ON SEQUENCE orders_order_number_seq, order_items_id_seq FROM anon, authenticated;
+
+-- Order tax split: the same as order_items. Signed-in users may read (the
+-- admin rule below limits it to admins); only the service role writes.
+REVOKE ALL ON order_tax_parts FROM anon, authenticated;
+GRANT SELECT ON order_tax_parts TO authenticated;
+REVOKE ALL ON SEQUENCE order_tax_parts_id_seq FROM anon, authenticated;
 
 -- Food tax rates: anyone may read; signed-out visitors may not write.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON food_tax_rates FROM anon;
@@ -507,6 +538,7 @@ CREATE POLICY "Admin read orders" ON orders FOR SELECT TO authenticated USING ((
 CREATE POLICY "Admin update orders" ON orders FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
 CREATE POLICY "Admin read order_items" ON order_items FOR SELECT TO authenticated USING ((select public.is_admin()));
 CREATE POLICY "Admin read square_webhook_events" ON square_webhook_events FOR SELECT TO authenticated USING ((select public.is_admin()));
+CREATE POLICY "Admin read order_tax_parts" ON order_tax_parts FOR SELECT TO authenticated USING ((select public.is_admin()));
 
 -- Food tax rates: admins may add, change and delete rows. Checkout only reads.
 CREATE POLICY "Admin insert food_tax_rates" ON food_tax_rates FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));

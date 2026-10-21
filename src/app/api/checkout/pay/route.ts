@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { payInputSchema } from "@/lib/checkout/schema";
 import { placeOrder, type PayErrorCode, type PayResult } from "@/lib/checkout/pay";
+import { quoteForBrowser } from "@/lib/checkout/quote";
 import { consentContext } from "@/lib/marketing-server";
 import { createRateLimiter, visitorKey } from "@/lib/rate-limit";
 
@@ -29,16 +30,21 @@ const STATUS_FOR: Partial<Record<PayErrorCode, number>> = {
   payment_failed: 402,
 };
 
-/** Delivery miles go to the browser rounded, as in the quote route. */
-function forBrowser(result: PayResult): PayResult {
-  if (result.ok || !result.quote || result.quote.fulfillment.type !== "local_delivery") return result;
+/**
+ * Delivery miles go to the browser rounded, and the tax split stays on the
+ * server, as in the quote route.
+ */
+function forBrowser(result: PayResult) {
+  if (result.ok || !result.quote) return result;
+  const quote = quoteForBrowser(result.quote);
+  if (quote.fulfillment.type !== "local_delivery") return { ...result, quote };
   return {
     ...result,
     quote: {
-      ...result.quote,
+      ...quote,
       fulfillment: {
-        ...result.quote.fulfillment,
-        miles: Math.round(result.quote.fulfillment.miles * 10) / 10,
+        ...quote.fulfillment,
+        miles: Math.round(quote.fulfillment.miles * 10) / 10,
       },
     },
   };

@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { quoteInputSchema } from "@/lib/checkout/schema";
-import { getQuote, type QuoteErrorCode, type QuoteResult } from "@/lib/checkout/quote";
+import {
+  getQuote,
+  quoteForBrowser,
+  type BrowserQuote,
+  type QuoteError,
+  type QuoteErrorCode,
+  type QuoteResult,
+} from "@/lib/checkout/quote";
 import { createRateLimiter, visitorKey } from "@/lib/rate-limit";
 
 /**
@@ -30,15 +37,18 @@ const STATUS_FOR: Partial<Record<QuoteErrorCode, number>> = {
 /**
  * What the browser sees. Delivery miles are shown to one decimal place: the
  * customer needs no more, and finer figures would make it easier to work out
- * the private starting point from many quotes.
+ * the private starting point from many quotes. The tax split by city and
+ * county stays on the server: it is saved with the order for the tax report.
  */
-function forBrowser(result: QuoteResult): QuoteResult {
-  if (!result.ok || result.fulfillment.type !== "local_delivery") return result;
+function forBrowser(result: QuoteResult): BrowserQuote | QuoteError {
+  if (!result.ok) return result;
+  const quote = quoteForBrowser(result);
+  if (quote.fulfillment.type !== "local_delivery") return quote;
   return {
-    ...result,
+    ...quote,
     fulfillment: {
-      ...result.fulfillment,
-      miles: Math.round(result.fulfillment.miles * 10) / 10,
+      ...quote.fulfillment,
+      miles: Math.round(quote.fulfillment.miles * 10) / 10,
     },
   };
 }
