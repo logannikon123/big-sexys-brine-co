@@ -17,7 +17,7 @@ export default async function AdminTaxPage() {
   const { data, error } = await supabase
     .from("food_tax_rates")
     .select(
-      "id, kind, name, census_geoid, taxes_food, food_rate_bps, confirmed, source, notes, updated_at"
+      "id, kind, name, census_geoid, taxes_food, food_rate_bps, confirmed, collected_by, source, notes, updated_at"
     );
 
   const rows: FoodTaxRate[] | null = data
