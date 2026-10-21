@@ -160,6 +160,29 @@ git diff --cached | grep -nE '(^|[^A-Za-z])[A-Za-z]:[\\/]|/(Users|home)/'
 No output means the change is clean. If you find a leak before pushing, fix it and amend. If it was
 already pushed, tell Jesse and offer to rewrite the branch before merge.
 
+### 10. How Claude works with Jesse
+
+- **Work in parallel.** Split independent tasks across subagents or side sessions whenever you
+  can. Subagents never merge pull requests or push to the live database.
+- **Keep going.** When a task is done, start the next planned item right away. Never ask
+  "should I build X next?". Stop only when Jesse says pause, or for an approval below.
+- **Approval requests stand out.** Put each one on its own line, bold, all caps, with a red
+  marker and the real PR number. No polite filler. Examples:
+  `🔴 **OPEN PR FOR STEP 2 (SQUARE PAYMENT): AWAITING APPROVAL**`
+  `🔴 **MERGE PR #54: AWAITING APPROVAL**`
+  `🔴 **PUSH MIGRATION TO LIVE DATABASE: AWAITING APPROVAL**`
+- **Merging.** Claude may run `gh pr merge <number> --squash --delete-branch` itself, but only
+  after asking for that specific PR and getting "merge" in chat. If the app blocks the command,
+  give Jesse the GitHub button and the command instead of retrying.
+- **Show the tests.** Every request to open or merge a PR includes a ✅/❌ table of each check:
+  lint, build, local site against live data, migration dry run (if any), and the live check
+  after deploy or database push. Say which are not done and why. Never call a PR tested
+  without this table.
+- **Dashboard steps in full.** When Jesse must change something by hand (Vercel, Square, DNS),
+  give click-by-click steps up front: the page, add new or edit, every field, type (Secret or
+  Config), which environments to tick, what to leave alone, and whether a redeploy is needed.
+- **Be brief.** Get to the point.
+
 ## Automatic checks on every pull request
 
 `main` is protected. A pull request can merge only when these checks pass. Vercel runs its own
