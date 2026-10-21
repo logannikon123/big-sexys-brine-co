@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createServiceClient } from "@/lib/supabase/server";
+import { consentContext, recordMarketingOptIn } from "@/lib/marketing-server";
 
 const contestSchema = z.object({
   name: z.string().min(2).max(100),
   email: z.string().email().max(254),
   pun: z.string().min(5).max(1000),
+  /** True when the visitor ticked the marketing email box (it starts ticked). */
+  marketingOptIn: z.boolean().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -20,13 +23,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, email, pun } = result.data;
+    const { name, email, pun, marketingOptIn } = result.data;
 
     // Always save to Supabase first so entries are never lost
     const supabase = await createServiceClient();
-    const { error: dbError } = await supabase
+    const { data: entry, error: dbError } = await supabase
       .from("contest_entries")
-      .insert({ name, email, pun });
+      .insert({ name, email, pun })
+      .select("id")
+      .single();
 
     if (dbError) {
       console.error("Failed to save contest entry to database:", dbError);
@@ -35,6 +40,16 @@ export async function POST(request: NextRequest) {
         { error: "Failed to submit entry" },
         { status: 500 }
       );
+    }
+
+    if (marketingOptIn) {
+      await recordMarketingOptIn({
+        email,
+        name,
+        source: "contest",
+        contestEntryId: entry?.id ?? null,
+        ...consentContext(request),
+      });
     }
 
     // Then send email notification

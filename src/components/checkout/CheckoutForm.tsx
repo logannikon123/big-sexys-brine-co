@@ -13,6 +13,7 @@ import { deliveryDateWindow } from "@/lib/checkout/dates";
 import type { PayResult } from "@/lib/checkout/pay";
 import type { Quote, QuoteResult } from "@/lib/checkout/quote";
 import { customerSchema } from "@/lib/checkout/schema";
+import { MARKETING_CONSENT_TEXT } from "@/lib/marketing";
 import { cn, formatPrice } from "@/lib/utils";
 
 /** What checkout needs to know about each product. Prices come from the server. */
@@ -99,6 +100,8 @@ export function CheckoutForm({
   const [problem, setProblem] = useState<QuoteProblem | null>(null);
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", notes: "" });
   const [termsAccepted, setTermsAccepted] = useState(false);
+  // Ticked to start, by Jesse's choice. The customer unticks it to say no.
+  const [marketingOptIn, setMarketingOptIn] = useState(true);
   const [paying, setPaying] = useState(false);
   const [placed, setPlaced] = useState<{ orderNumber: number; publicToken: string; totalCents: number; pending: boolean } | null>(null);
   const cardRef = useRef<SquareCardHandle>(null);
@@ -241,7 +244,7 @@ export function CheckoutForm({
       return;
     }
     if (!termsAccepted) {
-      setProblem({ message: "Please agree to the terms to place your order." });
+      setProblem({ message: "Please agree to the terms, refund policy and privacy policy to place your order." });
       return;
     }
 
@@ -262,6 +265,7 @@ export function CheckoutForm({
           checkoutId: checkoutIdRef.current,
           customer: checkedCustomer.data,
           termsAccepted: true,
+          marketingOptIn,
           expectedTotalCents: quote.totalCents,
           sourceId: card.token,
         }),
@@ -513,6 +517,21 @@ export function CheckoutForm({
               className={cn(inputClass, "resize-none")}
             />
           </div>
+          <label className="flex cursor-pointer items-start gap-3 text-sm text-brand-cream/80">
+            <input
+              type="checkbox"
+              checked={marketingOptIn}
+              onChange={(e) => setMarketingOptIn(e.target.checked)}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-brand-orange"
+            />
+            <span>
+              {MARKETING_CONSENT_TEXT}{" "}
+              <span className="text-brand-cream/50">
+                Optional. Unsubscribe any time. See our{" "}
+                <Link href="/privacy" target="_blank" className="underline hover:text-brand-orange">privacy policy</Link>.
+              </span>
+            </span>
+          </label>
         </fieldset>
       </div>
 
@@ -599,15 +618,17 @@ export function CheckoutForm({
               />
               <span>
                 I agree to the{" "}
-                <Link href="/terms" target="_blank" className="underline hover:text-brand-orange">terms</Link>{" "}
+                <Link href="/terms" target="_blank" className="underline hover:text-brand-orange">terms</Link>,{" "}
+                <Link href="/refunds" target="_blank" className="underline hover:text-brand-orange">refund policy</Link>{" "}
                 and{" "}
-                <Link href="/refunds" target="_blank" className="underline hover:text-brand-orange">refund policy</Link>.
+                <Link href="/privacy" target="_blank" className="underline hover:text-brand-orange">privacy policy</Link>.
+                <span className="text-brand-cream/50"> Required to place your order.</span>
               </span>
             </label>
             <button
               type="button"
               onClick={pay}
-              disabled={paying}
+              disabled={paying || !termsAccepted}
               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-orange px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {paying ? (

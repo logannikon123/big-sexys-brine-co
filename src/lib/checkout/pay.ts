@@ -2,6 +2,7 @@ import "server-only";
 import { after } from "next/server";
 import { SquareError } from "square";
 import { notifyOrderPaid } from "@/lib/orders/notify";
+import { recordMarketingOptIn } from "@/lib/marketing-server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSquareClient, squareEnvironment, squareLocationId } from "@/lib/square";
 import { getQuote, type Quote, type QuoteError } from "@/lib/checkout/quote";
@@ -26,7 +27,7 @@ import { formatPrice } from "@/lib/utils";
  */
 
 /** The version of the store terms the customer agrees to. Change it when /terms changes. */
-export const TERMS_VERSION = "2026-10";
+export const TERMS_VERSION = "2026-10 (terms, refunds, privacy)";
 
 /** Statuses that mean the money was taken. */
 const PAID_STATUSES = new Set([
@@ -220,7 +221,30 @@ function success(order: ExistingOrder, pending: boolean): PaySuccess {
   };
 }
 
-export async function placeOrder(input: PayInput): Promise<PayResult> {
+/** Where the request came from, kept as proof when the customer opts in to marketing emails. */
+export interface PayContext {
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+/** Save the customer's marketing opt-in, after they have their answer. */
+function keepOptIn(input: PayInput, orderId: string, context: PayContext) {
+  if (!input.marketingOptIn) return;
+  after(() =>
+    recordMarketingOptIn({
+      email: input.customer.email,
+      name: input.customer.name,
+      source: "checkout",
+      orderId,
+      ...context,
+    })
+  );
+}
+
+export async function placeOrder(
+  input: PayInput,
+  context: PayContext = { ipAddress: null, userAgent: null }
+): Promise<PayResult> {
   // A repeat of a checkout that already went through: answer the same way.
   const existing = await findOrder(input.checkoutId);
   if (existing && PAID_STATUSES.has(existing.status)) return success(existing, false);
@@ -315,6 +339,7 @@ export async function placeOrder(input: PayInput): Promise<PayResult> {
     // Tell Jesse and send the receipt after the customer has their answer.
     const orderId = saved.id;
     after(() => notifyOrderPaid(orderId));
+    keepOptIn(input, orderId, context);
     return success(saved, false);
   }
   if (payment?.status === "FAILED" || payment?.status === "CANCELED") {
@@ -326,5 +351,6 @@ export async function placeOrder(input: PayInput): Promise<PayResult> {
   // APPROVED or PENDING: Square has the card but hasn't settled it. The
   // webhook marks the order paid when Square confirms.
   await markOrder(saved.id, details);
+  keepOptIn(input, saved.id, context);
   return success(saved, true);
 }

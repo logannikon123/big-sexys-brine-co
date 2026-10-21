@@ -30,7 +30,7 @@ export default function PrivacyPage() {
       eyebrow="Your Information"
       title="Privacy Policy"
       lastUpdated="October 2026"
-      intro="We collect only what we need to fill your orders and answer your messages. We never sell it."
+      intro="We collect only what we need to fill your orders, answer your messages and, if you ask for them, send you our news. We never sell it."
     >
       <PolicySection title="What we collect">
         <p>When you place an order, we collect:</p>
@@ -62,7 +62,28 @@ export default function PrivacyPage() {
           <li>to contact you about your order, for example if a jar sells out</li>
           <li>to answer your messages</li>
           <li>to run the contest and contact the winners</li>
+          <li>
+            to send you emails about new flavors, where to find us, coupons,
+            promotions and special events, but only if you tick the box asking
+            for them
+          </li>
         </PolicyList>
+      </PolicySection>
+
+      <PolicySection title="Marketing emails">
+        <p>
+          At checkout and on the contest form there is a box you can tick to
+          get our marketing emails. It starts ticked: untick it if you don&apos;t
+          want them. You don&apos;t need it to order or to enter. If you tick it, we keep a record of
+          when and where you agreed, the wording you agreed to, and your
+          internet address and browser at the time, so we can show you asked.
+        </p>
+        <p>
+          You can stop these emails any time: use the unsubscribe link in any
+          of them, or email{" "}
+          <PolicyLink href={`mailto:${POLICY_EMAIL}`}>{POLICY_EMAIL}</PolicyLink>.
+          Order emails, like your receipt, still come either way.
+        </p>
       </PolicySection>
 
       <PolicySection title="Who handles it for us">
@@ -77,7 +98,7 @@ export default function PrivacyPage() {
           </li>
           <li>
             <strong className="text-brand-cream">Supabase</strong> stores our
-            order records and contest entries.
+            order records, contest entries and marketing email choices.
           </li>
           <li>
             <strong className="text-brand-cream">Resend</strong> sends our

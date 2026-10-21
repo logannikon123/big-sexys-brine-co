@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { payInputSchema } from "@/lib/checkout/schema";
 import { placeOrder, type PayErrorCode, type PayResult } from "@/lib/checkout/pay";
+import { consentContext } from "@/lib/marketing-server";
 import { createRateLimiter, visitorKey } from "@/lib/rate-limit";
 
 /**
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await placeOrder(parsed.data);
+    const result = await placeOrder(parsed.data, consentContext(request));
     const status = result.ok ? 200 : (STATUS_FOR[result.code] ?? 422);
     return NextResponse.json(forBrowser(result), { status, headers: NO_STORE });
   } catch (error) {

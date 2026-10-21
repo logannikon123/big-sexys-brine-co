@@ -129,11 +129,13 @@ export const payInputSchema = quoteInputSchema.extend({
   /** One per checkout attempt, so a repeated click can't charge twice. */
   checkoutId: z.uuid(),
   customer: customerSchema,
-  termsAccepted: z.literal(true, "Please agree to the terms to place your order."),
+  termsAccepted: z.literal(true, "Please agree to the terms, refund policy and privacy policy to place your order."),
   /** The total shown to the customer. If the price has changed since, nothing is charged. */
   expectedTotalCents: z.number().int().min(0),
   /** Square's one-time code for the card. */
   sourceId: z.string().min(1).max(500),
+  /** True when the customer ticked the marketing email box (it starts ticked). */
+  marketingOptIn: z.boolean().optional(),
 });
 
 export type PayInput = z.infer<typeof payInputSchema>;
