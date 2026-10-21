@@ -244,7 +244,7 @@ export function CheckoutForm({
       return;
     }
     if (!termsAccepted) {
-      setProblem({ message: "Please agree to the terms to place your order." });
+      setProblem({ message: "Please agree to the terms, refund policy and privacy policy to place your order." });
       return;
     }
 
@@ -618,15 +618,17 @@ export function CheckoutForm({
               />
               <span>
                 I agree to the{" "}
-                <Link href="/terms" target="_blank" className="underline hover:text-brand-orange">terms</Link>{" "}
+                <Link href="/terms" target="_blank" className="underline hover:text-brand-orange">terms</Link>,{" "}
+                <Link href="/refunds" target="_blank" className="underline hover:text-brand-orange">refund policy</Link>{" "}
                 and{" "}
-                <Link href="/refunds" target="_blank" className="underline hover:text-brand-orange">refund policy</Link>.
+                <Link href="/privacy" target="_blank" className="underline hover:text-brand-orange">privacy policy</Link>.
+                <span className="text-brand-cream/50"> Required to place your order.</span>
               </span>
             </label>
             <button
               type="button"
               onClick={pay}
-              disabled={paying}
+              disabled={paying || !termsAccepted}
               className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-orange px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {paying ? (
