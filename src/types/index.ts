@@ -40,6 +40,21 @@ export interface Event {
   description?: string;
 }
 
+/** A store that carries the jars, shown on the Find Us page. */
+export interface RetailLocation {
+  id: number;
+  name: string;
+  /** Full street address, linked to Google Maps on the page. */
+  address: string;
+  /** Opening hours as free text, like "Tue to Sun, 10am to 6pm". */
+  hours: string | null;
+  image_url: string | null;
+  /** Where online orders are picked up. Shows an "Online order pickup" badge. */
+  is_pickup_location: boolean;
+  is_visible: boolean;
+  sort_order: number;
+}
+
 export interface ClassInfo {
   title: string;
   price: number;

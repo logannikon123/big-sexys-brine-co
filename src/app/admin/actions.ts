@@ -5,6 +5,7 @@ import { requireAuthAction } from "@/lib/supabase/auth-guard";
 import { revalidatePath } from "next/cache";
 import { revalidateTag } from "next/cache";
 import { storeSettingsSchema, type StoreSettings } from "@/lib/store-settings";
+import { retailLocationSchema, type RetailLocationInput } from "@/lib/retail-locations";
 
 /**
  * Revalidate all product-related pages and caches.
@@ -28,6 +29,12 @@ function revalidateEvents() {
   revalidatePath("/events", "layout");
   revalidatePath("/", "layout");
   revalidateTag("events", { expire: 0 });
+}
+
+function revalidateRetail() {
+  revalidatePath("/admin/retail", "layout");
+  revalidatePath("/events", "layout");
+  revalidateTag("retail-locations", { expire: 0 });
 }
 
 function revalidateTestimonials() {
@@ -59,6 +66,7 @@ export async function clearAllCache() {
   revalidateTag("products", { expire: 0 });
   revalidateTag("product-images", { expire: 0 });
   revalidateTag("events", { expire: 0 });
+  revalidateTag("retail-locations", { expire: 0 });
   revalidateTag("testimonials", { expire: 0 });
   revalidateTag("class-info", { expire: 0 });
   revalidateTag("gallery", { expire: 0 });
@@ -311,6 +319,61 @@ export async function updateEventOrder(items: { id: number; sort_order: number }
     if (error) throw new Error(error.message);
   }
   revalidateEvents();
+}
+
+// Retail locations (stores that carry the jars, on the Find Us page)
+function parseRetailLocation(data: RetailLocationInput) {
+  const parsed = retailLocationSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Check the form.");
+  }
+  return parsed.data;
+}
+
+export async function createRetailLocation(data: RetailLocationInput) {
+  await requireAuthAction();
+  const row = parseRetailLocation(data);
+  const supabase = await createClient();
+  const { data: maxOrder } = await supabase
+    .from("retail_locations")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sort_order = (maxOrder?.sort_order ?? -1) + 1;
+  const { error } = await supabase.from("retail_locations").insert({ ...row, sort_order });
+  if (error) throw new Error(error.message);
+  revalidateRetail();
+}
+
+export async function updateRetailLocation(id: number, data: RetailLocationInput) {
+  await requireAuthAction();
+  const row = parseRetailLocation(data);
+  const supabase = await createClient();
+  const { error } = await supabase.from("retail_locations").update(row).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidateRetail();
+}
+
+export async function deleteRetailLocation(id: number) {
+  await requireAuthAction();
+  const supabase = await createClient();
+  const { error } = await supabase.from("retail_locations").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidateRetail();
+}
+
+export async function updateRetailLocationOrder(items: { id: number; sort_order: number }[]) {
+  await requireAuthAction();
+  const supabase = await createClient();
+  for (const item of items) {
+    const { error } = await supabase
+      .from("retail_locations")
+      .update({ sort_order: item.sort_order })
+      .eq("id", item.id);
+    if (error) throw new Error(error.message);
+  }
+  revalidateRetail();
 }
 
 // Testimonials

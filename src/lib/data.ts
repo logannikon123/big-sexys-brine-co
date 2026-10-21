@@ -1,6 +1,6 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { unstable_cache } from "next/cache";
-import type { Product, ProductImage, Event, ClassInfo, Testimonial } from "@/types";
+import type { Product, ProductImage, Event, ClassInfo, Testimonial, RetailLocation } from "@/types";
 import type { StoreSettings } from "@/lib/store-settings";
 
 // Fallback to JSON files if Supabase is not configured
@@ -224,6 +224,35 @@ export const getEvents = unstable_cache(_getEventsUncached, ["events-all"], {
   tags: ["events"],
   revalidate: 60,
 });
+
+// Retail locations: stores that carry the jars. Only visible ones, in the
+// admin's order. A failed read returns none, so the Find Us page still shows
+// its events.
+const _getRetailLocationsUncached = async (): Promise<RetailLocation[]> => {
+  if (!useSupabase) {
+    const data = (await import("@/content/retail-locations.json")).default;
+    return (data as RetailLocation[])
+      .filter((r) => r.is_visible)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  }
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("retail_locations")
+    .select("*")
+    .eq("is_visible", true)
+    .order("sort_order");
+  if (error) {
+    console.error("Couldn't read retail locations:", error.message);
+    return [];
+  }
+  return (data ?? []) as RetailLocation[];
+};
+
+export const getRetailLocations = unstable_cache(
+  _getRetailLocationsUncached,
+  ["retail-locations-visible"],
+  { tags: ["retail-locations"], revalidate: 60 }
+);
 
 export async function getUpcomingEvents(): Promise<Event[]> {
   const events = await getEvents();
