@@ -15,7 +15,7 @@ export const revalidate = 60;
 /**
  * Checkout: the customer picks pickup, local delivery or shipping, and sees
  * the full price from the quote route. Hidden, like the cart, until the store
- * opens. Payment is added in a later change.
+ * opens. Square takes the card payment (src/lib/checkout/pay.ts).
  */
 export default async function CheckoutPage() {
   const orderingAvailable = await getOrderingAvailable();
