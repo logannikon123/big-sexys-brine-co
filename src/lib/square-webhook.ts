@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSquareClient } from "@/lib/square";
+import { notifyOrderPaid } from "@/lib/orders/notify";
 
 /**
  * What the site does with each message Square sends to the webhook
@@ -121,6 +122,7 @@ async function handlePayment(payment: PaymentFields) {
       paid_at: new Date().toISOString(),
       payment_error_code: null,
     });
+    await notifyOrderPaid(order.id);
   } else if (
     (payment.status === "FAILED" || payment.status === "CANCELED") &&
     order.status === "pending_payment"
