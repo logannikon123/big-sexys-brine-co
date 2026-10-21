@@ -18,6 +18,8 @@ import type { Order } from "@/types/orders";
  * - payment.created / payment.updated: a payment finished or failed. A
  *   pending order becomes "paid" or "payment_failed". This catches the rare
  *   checkout where the card went through but the site lost Square's answer.
+ *   The step changes only if the order is still where it was when read, so
+ *   the webhook and checkout never both mark (or announce) the same order.
  * - refund.created / refund.updated: money went back to the customer. Each
  *   refund is saved in order_refunds, the order's refunded amount comes from
  *   Square's payment record, and the customer gets an email. The order's
@@ -127,6 +129,28 @@ async function updateOrder(id: string, fields: Record<string, unknown>) {
   if (error) throw new Error(`couldn't update the order: ${error.message}`);
 }
 
+/**
+ * Save a change of step only if the order is still at the step we read.
+ * Checkout also marks pending orders (and leaves alone any order that isn't
+ * pending), so whichever gets there first wins. Returns false when the
+ * order had moved on and nothing was saved.
+ */
+async function updateOrderFrom(
+  id: string,
+  fromStatus: OrderRow["status"],
+  fields: Record<string, unknown>
+): Promise<boolean> {
+  const supabase = await db();
+  const { data, error } = await supabase
+    .from("orders")
+    .update(fields)
+    .eq("id", id)
+    .eq("status", fromStatus)
+    .select("id");
+  if (error) throw new Error(`couldn't update the order: ${error.message}`);
+  return (data?.length ?? 0) > 0;
+}
+
 function cents(value: number | string | bigint | null | undefined): number {
   const n = Number(value ?? 0);
   return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
@@ -145,7 +169,7 @@ function planFields(order: OrderRow, plan: PaymentPlan): Record<string, unknown>
   return fields;
 }
 
-async function handlePayment(payment: PaymentFields) {
+async function handlePayment(payment: PaymentFields, secondTry = false): Promise<void> {
   const order = await findOrder(payment.id, payment.reference_id, cents(payment.amount_money?.amount));
   if (!order) return;
 
@@ -156,22 +180,32 @@ async function handlePayment(payment: PaymentFields) {
   } satisfies SquareChange);
   const fields = planFields(order, plan);
 
-  if (plan.status) {
-    Object.assign(fields, {
-      square_payment_id: payment.id,
-      square_order_id: payment.order_id ?? null,
-      square_receipt_url: payment.receipt_url ?? null,
-      card_brand: payment.card_details?.card?.card_brand ?? null,
-      card_last4: payment.card_details?.card?.last_4 ?? null,
-      status: plan.status,
-      ...(plan.status === "paid"
-        ? { paid_at: new Date().toISOString(), payment_error_code: null }
-        : { payment_error_code: payment.status }),
-    });
+  if (!plan.status) {
+    await updateOrder(order.id, fields);
+    return;
   }
 
-  await updateOrder(order.id, fields);
-  if (plan.announcePaid) await notifyOrderPaid(order.id);
+  Object.assign(fields, {
+    square_payment_id: payment.id,
+    square_order_id: payment.order_id ?? null,
+    square_receipt_url: payment.receipt_url ?? null,
+    card_brand: payment.card_details?.card?.card_brand ?? null,
+    card_last4: payment.card_details?.card?.last_4 ?? null,
+    status: plan.status,
+    ...(plan.status === "paid"
+      ? { paid_at: new Date().toISOString(), payment_error_code: null }
+      : { payment_error_code: payment.status }),
+  });
+
+  if (await updateOrderFrom(order.id, order.status, fields)) {
+    if (plan.announcePaid) await notifyOrderPaid(order.id);
+    return;
+  }
+  // Checkout changed the step while this message was being read. Read the
+  // order again and decide once more. If it moves again, fail, and Square
+  // sends the message later.
+  if (secondTry) throw new Error("the order kept changing while the payment was saved");
+  await handlePayment(payment, true);
 }
 
 /**

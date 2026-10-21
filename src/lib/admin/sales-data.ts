@@ -23,7 +23,7 @@ import { rangeBounds, type SalesFilters } from "./sales-filters";
 const PAGE_SIZE = 1000;
 
 const COLUMNS =
-  "id, order_number, status, fulfillment_type, customer_name, customer_email, total_cents, tax_cents, refunded_cents, refund_status, created_at, square_environment, order_items(product_id, product_name, product_size, quantity, line_total_cents)";
+  "id, order_number, status, fulfillment_type, customer_name, customer_email, total_cents, tax_cents, refunded_cents, refund_status, dispute_status, created_at, square_environment, order_items(product_id, product_name, product_size, quantity, line_total_cents)";
 
 const LOAD_ERROR =
   "The sales numbers didn't load. Reload the page. If it keeps happening, tell Nick.";

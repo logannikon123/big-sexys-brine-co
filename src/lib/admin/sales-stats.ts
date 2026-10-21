@@ -6,8 +6,9 @@
  *
  * The rules:
  * - A sale is an order with a step in SALE_STATUSES that wasn't refunded in
- *   full. Orders that were never paid, were cancelled or were refunded in
- *   full don't count.
+ *   full and didn't lose a card dispute. Orders that were never paid, were
+ *   cancelled, were refunded in full or lost a dispute (the bank took the
+ *   money back) don't count.
  * - Net sales for an order = total_cents - refunded_cents. The total
  *   includes tax and fees.
  * - Orders paid through Square's test system (square_environment =
@@ -59,15 +60,22 @@ export type SalesOrderRow = Pick<
   | "tax_cents"
   | "refunded_cents"
   | "refund_status"
+  | "dispute_status"
   | "created_at"
   | "square_environment"
 > & { order_items: SalesItemRow[] | null };
 
-export function isSale(order: Pick<Order, "status" | "refund_status">): boolean {
+export function isSale(order: Pick<Order, "status" | "refund_status" | "dispute_status">): boolean {
   return (
     (SALE_STATUSES as readonly OrderStatus[]).includes(order.status) &&
-    order.refund_status !== "full"
+    order.refund_status !== "full" &&
+    order.dispute_status !== "lost"
   );
+}
+
+/** A paid order whose card dispute the bank decided for the customer. */
+export function isLostDispute(order: Pick<Order, "refund_status" | "dispute_status">): boolean {
+  return order.dispute_status === "lost" && order.refund_status !== "full";
 }
 
 export function isTestOrder(order: Pick<Order, "square_environment">): boolean {
@@ -203,10 +211,14 @@ export interface SalesSummary {
   averageOrderCents: number;
   jars: number;
   taxCents: number;
-  /** Money given back: partial refunds on sales plus full refunds. */
+  /** Money refunded: part refunds on sales and lost disputes, plus full refunds. */
   refundsCents: number;
   /** Orders refunded in full. They aren't sales, so they show only here. */
   fullyRefundedOrders: number;
+  /** Orders that lost a card dispute. They aren't sales either. */
+  lostDisputeOrders: number;
+  /** What the bank took back on those orders: their total less any refunds. */
+  lostDisputeCents: number;
   byFulfillment: FulfillmentStats[];
 }
 
@@ -320,6 +332,7 @@ export function computeSalesStats(rows: readonly SalesOrderRow[], options: Sales
   const inRange = filterOrders(rows, options);
   const sales = inRange.filter((o) => isSale(o));
   const fullRefunds = inRange.filter((o) => o.refund_status === "full");
+  const lostDisputes = inRange.filter((o) => isLostDispute(o));
 
   // Summary
   const netTotal = sales.reduce((sum, o) => sum + netCents(o), 0);
@@ -329,8 +342,13 @@ export function computeSalesStats(rows: readonly SalesOrderRow[], options: Sales
     averageOrderCents: average(netTotal, sales.length),
     jars: sales.reduce((sum, o) => sum + jarCount(o), 0),
     taxCents: sales.reduce((sum, o) => sum + o.tax_cents, 0),
-    refundsCents: [...sales, ...fullRefunds].reduce((sum, o) => sum + o.refunded_cents, 0),
+    refundsCents: [...sales, ...fullRefunds, ...lostDisputes].reduce(
+      (sum, o) => sum + o.refunded_cents,
+      0
+    ),
     fullyRefundedOrders: fullRefunds.length,
+    lostDisputeOrders: lostDisputes.length,
+    lostDisputeCents: lostDisputes.reduce((sum, o) => sum + netCents(o), 0),
     byFulfillment: FULFILLMENT_TYPES.map((type) => {
       const ofType = sales.filter((o) => o.fulfillment_type === type);
       return {
