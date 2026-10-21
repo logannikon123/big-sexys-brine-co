@@ -496,8 +496,8 @@ INSERT INTO store_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 -- The single private settings row, empty until an admin saves the address
 INSERT INTO store_private_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 
--- Starting food tax rates, all unconfirmed until Jesse and his accountant
--- check them (DR 1002, January 2026, and city documents)
+-- Starting food tax rates (DR 1002, January 2026, and city documents),
+-- confirmed by Jesse on 2026-10-20 just below
 INSERT INTO food_tax_rates (kind, name, census_geoid, taxes_food, food_rate_bps, source, notes) VALUES
   -- Counties (DR 1002 page 5)
   ('county', 'Jefferson County', '08059', true, 50,
@@ -611,6 +611,10 @@ INSERT INTO food_tax_rates (kind, name, census_geoid, taxes_food, food_rate_bps,
     'DR 1002, Jan 2026, page 3: https://spl.cde.state.co.us/artemis/revserials/rev914internet/rev914202601internet.pdf',
     'Local improvement district in Douglas County, near Lone Tree and Highlands Ranch. Its boundaries aren''t known yet, so each address needs a manual check.')
 ON CONFLICT (kind, name) DO NOTHING;
+
+-- Jesse approved the starting rates as they stand (see
+-- supabase/migrations/20261021000126_confirm_food_tax_rates.sql)
+UPDATE food_tax_rates SET confirmed = true WHERE NOT confirmed;
 
 -- Storage bucket for images
 -- Run this separately in the Supabase dashboard or via the API:
