@@ -1,7 +1,14 @@
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { STATUS_BADGE_CLASS, statusLabel } from "./order-flow";
-import type { OrderStatus } from "@/types/orders";
+import {
+  DISPUTE_BADGE_CLASS,
+  REFUND_BADGE_CLASS,
+  STATUS_BADGE_CLASS,
+  disputeLabel,
+  refundLabel,
+  statusLabel,
+} from "./order-flow";
+import type { DisputeStatus, OrderStatus, RefundStatus } from "@/types/orders";
 
 export function OrderStatusBadge({
   status,
@@ -17,6 +24,40 @@ export function OrderStatusBadge({
     >
       {statusLabel(status)}
     </Badge>
+  );
+}
+
+/**
+ * Refund and dispute badges, shown beside the step. Nothing shows when
+ * nothing was refunded and there is no dispute.
+ */
+export function OrderMoneyBadges({
+  refundStatus,
+  disputeStatus,
+  className,
+}: {
+  refundStatus: RefundStatus;
+  disputeStatus: DisputeStatus | null;
+  className?: string;
+}) {
+  const refund = refundLabel(refundStatus);
+  const dispute = disputeLabel(disputeStatus);
+  return (
+    <>
+      {refund && (
+        <Badge variant="outline" className={cn("text-xs", REFUND_BADGE_CLASS, className)}>
+          {refund}
+        </Badge>
+      )}
+      {dispute && disputeStatus && (
+        <Badge
+          variant="outline"
+          className={cn("text-xs", DISPUTE_BADGE_CLASS[disputeStatus], className)}
+        >
+          {dispute}
+        </Badge>
+      )}
+    </>
   );
 }
 

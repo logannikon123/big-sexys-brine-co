@@ -197,17 +197,18 @@ CREATE TABLE IF NOT EXISTS store_private_settings (
 -- hundredths of a percent. Names, prices, fees and pickup instructions are
 -- copied in at checkout so later edits never change an old order. Holds
 -- customers' personal details: admins only. Checkout and the Square webhook
--- write with the service role key.
+-- write with the service role key. status is only the delivery step;
+-- refunds and card disputes have their own columns, so they never wipe it
+-- out (see supabase/migrations/20261021212638_order_refunds_disputes_emails.sql).
 CREATE TABLE IF NOT EXISTS orders (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   order_number INTEGER GENERATED ALWAYS AS IDENTITY (START WITH 1001) UNIQUE,
   public_token TEXT UNIQUE NOT NULL DEFAULT encode(extensions.gen_random_bytes(24), 'hex'),
   checkout_id UUID UNIQUE NOT NULL,
 
-  status TEXT NOT NULL DEFAULT 'pending_payment' CHECK (status IN (
+  status TEXT NOT NULL DEFAULT 'pending_payment' CONSTRAINT orders_status_check CHECK (status IN (
     'pending_payment', 'payment_failed', 'paid', 'ready_for_pickup',
-    'out_for_delivery', 'shipped', 'fulfilled', 'cancelled', 'refunded',
-    'partially_refunded', 'disputed'
+    'out_for_delivery', 'shipped', 'fulfilled', 'cancelled'
   )),
 
   -- Fulfillment
@@ -251,6 +252,14 @@ CREATE TABLE IF NOT EXISTS orders (
   tax_rate_bps INTEGER CHECK (tax_rate_bps >= 0 AND tax_rate_bps <= 10000),
   tax_jurisdiction TEXT,
   refunded_cents INTEGER NOT NULL DEFAULT 0 CHECK (refunded_cents >= 0),
+  -- Worked out from refunded_cents: 'none', 'partial' or 'full'.
+  refund_status TEXT GENERATED ALWAYS AS (
+    CASE
+      WHEN refunded_cents <= 0 THEN 'none'
+      WHEN refunded_cents >= total_cents THEN 'full'
+      ELSE 'partial'
+    END
+  ) STORED,
   currency TEXT NOT NULL DEFAULT 'USD',
 
   -- Square
@@ -261,6 +270,12 @@ CREATE TABLE IF NOT EXISTS orders (
   card_last4 TEXT,
   payment_error_code TEXT,
   square_environment TEXT CHECK (square_environment IN ('sandbox', 'production')),
+
+  -- Card dispute, from Square's dispute messages. NULL means none.
+  dispute_status TEXT CHECK (dispute_status IN ('open', 'won', 'lost')),
+  square_dispute_id TEXT,
+  disputed_at TIMESTAMPTZ,
+  dispute_closed_at TIMESTAMPTZ,
 
   -- Shipping
   tracking_number TEXT,
@@ -308,6 +323,51 @@ CREATE TABLE IF NOT EXISTS square_webhook_events (
   received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   processed_at TIMESTAMPTZ,
   payload JSONB
+);
+
+-- One row for each refund Square tells us about. square_refund_id is empty
+-- only on 'backfill' rows, copied in for refunds made before this table.
+-- The jars, fees and tax split is filled in only when certain (a single
+-- refund of the whole order); otherwise all three are empty.
+CREATE TABLE IF NOT EXISTS order_refunds (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  square_refund_id TEXT UNIQUE,
+  square_payment_id TEXT,
+  amount_cents INTEGER NOT NULL CHECK (amount_cents >= 0),
+  status TEXT NOT NULL,
+  reason TEXT,
+  jars_cents INTEGER CHECK (jars_cents >= 0),
+  fees_cents INTEGER CHECK (fees_cents >= 0),
+  tax_cents INTEGER CHECK (tax_cents >= 0),
+  source TEXT NOT NULL DEFAULT 'square' CHECK (source IN ('square', 'backfill')),
+  refunded_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT order_refunds_parts_add_up CHECK (
+    (jars_cents IS NULL AND fees_cents IS NULL AND tax_cents IS NULL)
+    OR (jars_cents + fees_cents + tax_cents = amount_cents)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_order_refunds_order_id ON order_refunds (order_id);
+CREATE INDEX IF NOT EXISTS idx_order_refunds_refunded_at ON order_refunds (refunded_at);
+
+-- One row for each email sent to a customer after the receipt. The unique
+-- key stops the same email going out twice. event_key is Square's refund id
+-- for a refund email, empty for the rest.
+CREATE TABLE IF NOT EXISTS order_emails (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+  kind TEXT NOT NULL CHECK (kind IN (
+    'ready_for_pickup', 'out_for_delivery', 'shipped', 'delivered',
+    'cancelled', 'refunded'
+  )),
+  event_key TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  sent_at TIMESTAMPTZ,
+  error TEXT,
+  CONSTRAINT order_emails_once UNIQUE (order_id, kind, event_key)
 );
 
 -- Local sales tax rates on food, one row for each county, city or special
@@ -375,6 +435,11 @@ CREATE TRIGGER orders_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at();
 
+CREATE TRIGGER order_refunds_updated_at
+  BEFORE UPDATE ON order_refunds
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+
 CREATE TRIGGER food_tax_rates_updated_at
   BEFORE UPDATE ON food_tax_rates
   FOR EACH ROW
@@ -408,6 +473,8 @@ ALTER TABLE store_private_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE order_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE square_webhook_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_refunds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE order_emails ENABLE ROW LEVEL SECURITY;
 ALTER TABLE food_tax_rates ENABLE ROW LEVEL SECURITY;
 
 -- Signed-out visitors get no access to the private settings at all.
@@ -423,6 +490,9 @@ GRANT UPDATE (
   ready_at, out_for_delivery_at, shipped_at, fulfilled_at, cancelled_at
 ) ON orders TO authenticated;
 REVOKE ALL ON SEQUENCE orders_order_number_seq, order_items_id_seq FROM anon, authenticated;
+REVOKE ALL ON order_refunds, order_emails FROM anon, authenticated;
+GRANT SELECT ON order_refunds, order_emails TO authenticated;
+REVOKE ALL ON SEQUENCE order_refunds_id_seq, order_emails_id_seq FROM anon, authenticated;
 
 -- Food tax rates: anyone may read; signed-out visitors may not write.
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON food_tax_rates FROM anon;
@@ -507,6 +577,8 @@ CREATE POLICY "Admin read orders" ON orders FOR SELECT TO authenticated USING ((
 CREATE POLICY "Admin update orders" ON orders FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
 CREATE POLICY "Admin read order_items" ON order_items FOR SELECT TO authenticated USING ((select public.is_admin()));
 CREATE POLICY "Admin read square_webhook_events" ON square_webhook_events FOR SELECT TO authenticated USING ((select public.is_admin()));
+CREATE POLICY "Admin read order_refunds" ON order_refunds FOR SELECT TO authenticated USING ((select public.is_admin()));
+CREATE POLICY "Admin read order_emails" ON order_emails FOR SELECT TO authenticated USING ((select public.is_admin()));
 
 -- Food tax rates: admins may add, change and delete rows. Checkout only reads.
 CREATE POLICY "Admin insert food_tax_rates" ON food_tax_rates FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));

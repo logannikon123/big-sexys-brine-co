@@ -7,10 +7,12 @@
  */
 
 import type {
+  DisputeStatus,
   FulfillmentType,
   Order,
   OrderAdminUpdate,
   OrderStatus,
+  RefundStatus,
 } from "@/types/orders";
 
 /** The statuses an admin may move an order to. */
@@ -30,9 +32,11 @@ export type AdminMoveStatus =
  * - paid, ready_for_pickup and out_for_delivery orders can be cancelled.
  *   A shipped order can't: the jars are already with the carrier.
  *
- * Square, through the webhook, sets paid, payment_failed, refunded,
- * partially_refunded and disputed. Admins never set those by hand, so they
- * appear here only as starting points, never as a next step.
+ * Square, through the webhook, sets pending_payment, payment_failed and
+ * paid. Admins never set those by hand, so paid appears here only as a
+ * starting point. Refunds and disputes don't change the step (they have
+ * their own fields), so a partly refunded or disputed order keeps its
+ * buttons.
  */
 export const ALLOWED_MOVES: Record<
   FulfillmentType,
@@ -123,12 +127,32 @@ export function statusLabel(status: OrderStatus): string {
       return "Completed";
     case "cancelled":
       return "Cancelled";
-    case "refunded":
-      return "Refunded";
-    case "partially_refunded":
+  }
+}
+
+/** The refund in plain words, or null when nothing was refunded. */
+export function refundLabel(status: RefundStatus): string | null {
+  switch (status) {
+    case "none":
+      return null;
+    case "partial":
       return "Partly refunded";
-    case "disputed":
+    case "full":
+      return "Refunded";
+  }
+}
+
+/** The card dispute in plain words, or null when there is none. */
+export function disputeLabel(status: DisputeStatus | null): string | null {
+  switch (status) {
+    case "open":
       return "Card dispute";
+    case "won":
+      return "Dispute won";
+    case "lost":
+      return "Dispute lost";
+    default:
+      return null;
   }
 }
 
@@ -145,9 +169,14 @@ export const STATUS_BADGE_CLASS: Record<OrderStatus, string> = {
   shipped: "border-violet-500/50 bg-violet-500/15 text-violet-300",
   fulfilled: "border-emerald-600 bg-emerald-600 text-white",
   cancelled: "border-zinc-500/50 bg-zinc-500/15 text-zinc-300",
-  refunded: "border-amber-500/50 bg-amber-500/15 text-amber-300",
-  partially_refunded: "border-amber-500/50 bg-amber-500/15 text-amber-300",
-  disputed: "border-red-500/50 bg-red-500/15 text-red-300",
+};
+
+export const REFUND_BADGE_CLASS = "border-amber-500/50 bg-amber-500/15 text-amber-300";
+
+export const DISPUTE_BADGE_CLASS: Record<DisputeStatus, string> = {
+  open: "border-red-500/50 bg-red-500/15 text-red-300",
+  won: "border-emerald-500/50 bg-emerald-500/15 text-emerald-300",
+  lost: "border-red-500/50 bg-red-500/15 text-red-300",
 };
 
 export function fulfillmentLabel(type: FulfillmentType): string {
@@ -162,7 +191,7 @@ export function fulfillmentLabel(type: FulfillmentType): string {
 }
 
 /**
- * Orders with a step still to take. A shipped order counts, because Jesse
+ * Steps that still have a next step. A shipped order counts, because Jesse
  * still marks it delivered.
  */
 export const OPEN_STATUSES = [
@@ -172,39 +201,66 @@ export const OPEN_STATUSES = [
   "shipped",
 ] as const satisfies readonly OrderStatus[];
 
+/** The steps that mean the payment never went through. */
+export const UNPAID_STATUSES = [
+  "pending_payment",
+  "payment_failed",
+] as const satisfies readonly OrderStatus[];
+
+type ViewRow = Pick<Order, "status" | "refund_status" | "dispute_status">;
+
+/**
+ * An order on the To do list: a step is left, and the money wasn't all
+ * given back. A partly refunded or disputed order stays on the list.
+ */
+export function isOpenOrder(order: ViewRow): boolean {
+  return (
+    (OPEN_STATUSES as readonly OrderStatus[]).includes(order.status) &&
+    order.refund_status !== "full"
+  );
+}
+
 /** How many completed orders "To do" shows below the open ones. */
 export const TODO_COMPLETED_LIMIT = 20;
 
 /**
- * The tabs on the order list, picked with ?view= in the address. "To do"
- * lists the open orders, then the newest completed ones at the bottom.
+ * The tabs on the order list, picked with ?view= in the address. inView
+ * says which orders each one shows.
+ *
+ * - To do: open orders (see isOpenOrder), then the newest completed ones.
+ * - Completed: delivered or picked up.
+ * - Cancelled and refunded: cancelled, or any money given back.
+ * - Payment problems: never paid, or a card dispute.
  */
 export const ORDER_VIEWS = [
-  {
-    key: "todo",
-    label: "To do",
-    statuses: [...OPEN_STATUSES, "fulfilled"],
-  },
-  { key: "completed", label: "Completed", statuses: ["fulfilled"] },
-  {
-    key: "cancelled",
-    label: "Cancelled and refunded",
-    statuses: ["cancelled", "refunded", "partially_refunded", "disputed"],
-  },
-  {
-    key: "problems",
-    label: "Payment problems",
-    statuses: ["pending_payment", "payment_failed"],
-  },
-  { key: "all", label: "All", statuses: null },
-] as const satisfies readonly {
-  key: string;
-  label: string;
-  statuses: readonly OrderStatus[] | null;
-}[];
+  { key: "todo", label: "To do" },
+  { key: "completed", label: "Completed" },
+  { key: "cancelled", label: "Cancelled and refunded" },
+  { key: "problems", label: "Payment problems" },
+  { key: "all", label: "All" },
+] as const satisfies readonly { key: string; label: string }[];
 
 export type OrderView = (typeof ORDER_VIEWS)[number];
 export type OrderViewKey = OrderView["key"];
+
+/** Whether an order belongs in a tab. order-data.ts asks the database the same thing. */
+export function inView(key: OrderViewKey, order: ViewRow): boolean {
+  switch (key) {
+    case "todo":
+      return isOpenOrder(order) || order.status === "fulfilled";
+    case "completed":
+      return order.status === "fulfilled";
+    case "cancelled":
+      return order.status === "cancelled" || order.refund_status !== "none";
+    case "problems":
+      return (
+        (UNPAID_STATUSES as readonly OrderStatus[]).includes(order.status) ||
+        order.dispute_status !== null
+      );
+    case "all":
+      return true;
+  }
+}
 
 /**
  * Puts "To do" in order: open orders first, then completed ones, each group
@@ -293,6 +349,8 @@ export type OrderListRow = Pick<
   | "total_cents"
   | "created_at"
   | "square_environment"
+  | "refund_status"
+  | "dispute_status"
 > & {
   /** Jars in the order, counting each jar of a repeated item. */
   item_count: number;

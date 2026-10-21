@@ -5,8 +5,9 @@
  * math is easy to check without a database. Money is in whole cents.
  *
  * The rules:
- * - A sale is an order with a status in SALE_STATUSES. Orders that were never
- *   paid, were cancelled or were refunded in full don't count.
+ * - A sale is an order with a step in SALE_STATUSES that wasn't refunded in
+ *   full. Orders that were never paid, were cancelled or were refunded in
+ *   full don't count.
  * - Net sales for an order = total_cents - refunded_cents. The total
  *   includes tax and fees.
  * - Orders paid through Square's test system (square_environment =
@@ -30,14 +31,15 @@ export const SALE_STATUSES = [
   "out_for_delivery",
   "shipped",
   "fulfilled",
-  "partially_refunded",
-  "disputed",
 ] as const satisfies readonly OrderStatus[];
 
-/** The statuses the page loads: sales, plus full refunds for the refund total. */
+/**
+ * The steps the page loads: sales, plus cancelled orders, which may hold
+ * full refunds for the refund total.
+ */
 export const LOADED_STATUSES = [
   ...SALE_STATUSES,
-  "refunded",
+  "cancelled",
 ] as const satisfies readonly OrderStatus[];
 
 export type SalesItemRow = Pick<
@@ -56,12 +58,16 @@ export type SalesOrderRow = Pick<
   | "total_cents"
   | "tax_cents"
   | "refunded_cents"
+  | "refund_status"
   | "created_at"
   | "square_environment"
 > & { order_items: SalesItemRow[] | null };
 
-export function isSale(status: OrderStatus): boolean {
-  return (SALE_STATUSES as readonly OrderStatus[]).includes(status);
+export function isSale(order: Pick<Order, "status" | "refund_status">): boolean {
+  return (
+    (SALE_STATUSES as readonly OrderStatus[]).includes(order.status) &&
+    order.refund_status !== "full"
+  );
 }
 
 export function isTestOrder(order: Pick<Order, "square_environment">): boolean {
@@ -312,8 +318,8 @@ function topKey<K>(counts: Map<K, number>): K | null {
 export function computeSalesStats(rows: readonly SalesOrderRow[], options: SalesOptions): SalesStats {
   // Newest first, so the first name and product label seen is the newest.
   const inRange = filterOrders(rows, options);
-  const sales = inRange.filter((o) => isSale(o.status));
-  const fullRefunds = inRange.filter((o) => o.status === "refunded");
+  const sales = inRange.filter((o) => isSale(o));
+  const fullRefunds = inRange.filter((o) => o.refund_status === "full");
 
   // Summary
   const netTotal = sales.reduce((sum, o) => sum + netCents(o), 0);

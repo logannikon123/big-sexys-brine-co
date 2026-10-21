@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { PublicOrder } from "@/lib/orders/public-order";
 import type { OrderStatus } from "@/types/orders";
 import { formatPrice } from "@/lib/utils";
+import { trackingUrl } from "@/components/admin/orders/order-flow";
 
 /** "2026-10-27" -> "Tuesday, October 27" */
 function longDate(isoDate: string): string {
@@ -37,15 +38,60 @@ const STATUS_TEXT: Record<OrderStatus, string> = {
   shipped: "Your jars are in the mail.",
   fulfilled: "All done. Enjoy your pickles!",
   cancelled: "We cancelled this order.",
-  refunded: "We refunded this order.",
-  partially_refunded: "Paid. We refunded part of this order.",
-  disputed: "Your card company has questioned this payment. We're looking into it.",
 };
 
+/** A line about money given back, under the step. */
+function refundText(order: PublicOrder): string | null {
+  if (order.refund_status === "full") return "We refunded this order in full.";
+  if (order.refund_status === "partial") {
+    return `We refunded ${formatPrice(order.refunded_cents)} of this order.`;
+  }
+  return null;
+}
+
+/** The tracking number, as a link to the carrier when we know the carrier. */
+function Tracking({ order }: { order: PublicOrder }) {
+  if (!order.tracking_number) return null;
+  const url = trackingUrl(order.tracking_carrier, order.tracking_number);
+  return (
+    <p className="break-words text-brand-cream/80">
+      Tracking number{order.tracking_carrier ? ` (${order.tracking_carrier})` : ""}:{" "}
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`font-semibold text-brand-cream ${linkClass}`}
+        >
+          {order.tracking_number}
+        </a>
+      ) : (
+        <span className="font-semibold text-brand-cream">{order.tracking_number}</span>
+      )}
+    </p>
+  );
+}
+
+/** Steps a full refund doesn't replace: the jars went out, or the order ended. */
+const SENT: readonly OrderStatus[] = ["shipped", "fulfilled", "cancelled"];
+
 export function OrderStatusCard({ order }: { order: PublicOrder }) {
+  // A full refund before the jars went out reads as the order's news.
+  const refundedFirst = order.refund_status === "full" && !SENT.includes(order.status);
+  const headline = refundedFirst ? "We refunded this order in full." : STATUS_TEXT[order.status];
+  const refund = refundedFirst ? null : refundText(order);
+  const showTracking =
+    order.fulfillment_type === "shipping" &&
+    (order.status === "shipped" || order.status === "fulfilled");
   return (
     <div className={cardClass}>
-      <p className="text-lg font-semibold text-brand-cream">{STATUS_TEXT[order.status]}</p>
+      <p className="text-lg font-semibold text-brand-cream">{headline}</p>
+      {refund && <p className="text-brand-cream/80">{refund}</p>}
+      {order.dispute_status === "open" && (
+        <p className="text-brand-cream/80">
+          Your card company has questioned this payment. We&apos;re looking into it.
+        </p>
+      )}
       {order.status === "payment_failed" && (
         <p className="text-brand-cream/80">
           <Link href="/cart" className={linkClass}>
@@ -54,12 +100,7 @@ export function OrderStatusCard({ order }: { order: PublicOrder }) {
           to try again.
         </p>
       )}
-      {order.status === "shipped" && order.tracking_number && (
-        <p className="break-words text-brand-cream/80">
-          Tracking number{order.tracking_carrier ? ` (${order.tracking_carrier})` : ""}:{" "}
-          <span className="font-semibold text-brand-cream">{order.tracking_number}</span>
-        </p>
-      )}
+      {showTracking && <Tracking order={order} />}
       <p className="text-sm text-brand-cream/60">Placed {placedDate(order.created_at)}</p>
     </div>
   );
