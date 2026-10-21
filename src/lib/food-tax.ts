@@ -30,8 +30,8 @@ import type { FoodTaxKind } from "@/lib/food-tax-rates";
  *    county: their whole rate sits on one row, and the other is 0%.
  * 6. Whatever the answer, maybeInDistrict is true for Jefferson and Douglas
  *    County addresses. Those counties hold local improvement districts that
- *    tax food (Southeast Jefferson County and Lincoln Station), so checkout
- *    sends those orders for review before charging.
+ *    tax food (Southeast Jefferson County and Lincoln Station). Checkout
+ *    doesn't act on it: Jesse chose to charge only the city and county rates.
  */
 
 /** Counties that hold a special district with its own food tax. */

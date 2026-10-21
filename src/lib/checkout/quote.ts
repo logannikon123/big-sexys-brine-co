@@ -298,10 +298,13 @@ function geoFields(match: GeocodeMatch): GeoFields {
 
 /**
  * Local food tax on the jars, from the food_tax_rates table (see
- * src/lib/food-tax.ts). Tax is charged only when every rate that applies is
- * on file and confirmed by an admin, and the address is in no county with a
- * special food tax district. Any other answer charges no tax and marks the
- * quote needs_review, so Jesse checks the tax before packing.
+ * src/lib/food-tax.ts): the city rate plus the county rate. Tax is charged
+ * only when every rate that applies is on file and confirmed by an admin.
+ * Any other answer charges no tax and marks the quote needs_review, so Jesse
+ * checks the tax before packing.
+ *
+ * Special districts (like the Southeast Jefferson County LID) are left out,
+ * by Jesse's choice: we charge what DR 1002 lists for the city and county.
  *
  * Tax applies to the jar subtotal only. We treat the delivery, rush, packing
  * and postage fees as not taxable. Confirm this with the accountant: some
@@ -341,13 +344,7 @@ async function quoteTax(
   }
 
   const rate = lookup.status === "ok" ? lookup.rateBps : null;
-  if (
-    rate === null ||
-    lookup.maybeInDistrict ||
-    !Number.isInteger(rate) ||
-    rate < 0 ||
-    rate > 10_000
-  ) {
+  if (rate === null || !Number.isInteger(rate) || rate < 0 || rate > 10_000) {
     return needsReview(lookup.jurisdiction);
   }
 
