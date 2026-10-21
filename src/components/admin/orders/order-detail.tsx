@@ -270,6 +270,13 @@ function Money({ order }: { order: Order }) {
                   )
                 </span>
               )}
+              {/* Checkout saves no rate when it had none on file for the
+                  address, and charges 0% (see src/lib/checkout/quote.ts). */}
+              {order.tax_rate_bps === null && (
+                <span className="block text-xs">
+                  No local rate on file: charged 0%
+                </span>
+              )}
             </>
           }
         >

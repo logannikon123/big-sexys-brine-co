@@ -144,7 +144,6 @@ export function OrderSummaryCard({ order }: { order: PublicOrder }) {
 
   let taxLabel = "Local sales tax";
   if (order.tax_cents > 0 && order.tax_jurisdiction) taxLabel += ` (${order.tax_jurisdiction})`;
-  const taxValue = order.tax_rate_bps === null ? "To be confirmed" : formatPrice(order.tax_cents);
 
   // Square sends brands like "VISA" or "AMERICAN_EXPRESS".
   const cardBrand = order.card_brand?.replace(/_/g, " ");
@@ -172,7 +171,7 @@ export function OrderSummaryCard({ order }: { order: PublicOrder }) {
         {fees.map((fee) => (
           <Row key={fee.label} label={fee.label} value={formatPrice(fee.cents)} />
         ))}
-        <Row label={taxLabel} value={taxValue} />
+        <Row label={taxLabel} value={formatPrice(order.tax_cents)} />
         <div className="flex items-baseline justify-between gap-4 border-t border-brand-brown/30 pt-3">
           <span className="font-semibold text-brand-cream">Total</span>
           <span className="font-display text-2xl font-bold text-brand-gold tabular-nums">

@@ -691,9 +691,7 @@ function QuoteSummary({ quote }: { quote: Quote }) {
           Local sales tax
           {quote.tax.status === "ok" && quote.tax.jurisdiction ? ` (${quote.tax.jurisdiction})` : ""}
         </span>
-        <span className="tabular-nums">
-          {quote.tax.status === "ok" ? formatPrice(quote.taxCents) : "To be confirmed"}
-        </span>
+        <span className="tabular-nums">{formatPrice(quote.taxCents)}</span>
       </div>
       <div className="flex items-baseline justify-between gap-4 border-t border-brand-brown/30 pt-3">
         <span className="font-semibold text-brand-cream">Total</span>
@@ -702,7 +700,6 @@ function QuoteSummary({ quote }: { quote: Quote }) {
         </span>
       </div>
 
-      {quote.tax.note && <p className="text-brand-cream/60">{quote.tax.note}</p>}
       {f.type === "pickup" && f.instructions && (
         <p className="text-brand-cream/60">{f.instructions}</p>
       )}

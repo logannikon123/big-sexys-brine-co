@@ -40,10 +40,6 @@ export const PICKUP_TAX_LOCATION: FoodTaxQuery = {
   countyFips: "08059",
 };
 
-/** Shown with any quote whose local tax we can't confirm yet. */
-export const TAX_REVIEW_NOTE =
-  "Any local sales tax will be confirmed before your order is packed.";
-
 export interface QuoteLine {
   productId: number;
   name: string;
@@ -94,16 +90,21 @@ export interface ShippingDetails {
   geo: GeoFields | null;
 }
 
-export type TaxStatus = "ok" | "needs_review";
+export type TaxStatus = "ok" | "no_rate";
 
 export interface QuoteTax {
-  /** ok: tax is worked out. needs_review: tax is 0 here, and Jesse confirms it before packing. */
+  /**
+   * ok: tax comes from confirmed rates on file. no_rate: we have no
+   * confirmed rate for the address, so the order pays no local tax.
+   */
   status: TaxStatus;
-  /** The rate charged, in hundredths of a percent. Null when the tax needs review. */
+  /**
+   * The rate charged, in hundredths of a percent. Null when there was no
+   * rate on file. The order saves it, so admins can see which orders paid
+   * 0% for that reason.
+   */
   rateBps: number | null;
   jurisdiction: string | null;
-  /** Note for the customer, or null. */
-  note: string | null;
 }
 
 export interface Quote {
@@ -300,8 +301,12 @@ function geoFields(match: GeocodeMatch): GeoFields {
  * Local food tax on the jars, from the food_tax_rates table (see
  * src/lib/food-tax.ts): the city rate plus the county rate. Tax is charged
  * only when every rate that applies is on file and confirmed by an admin.
- * Any other answer charges no tax and marks the quote needs_review, so Jesse
- * checks the tax before packing.
+ *
+ * Jesse's rule: a place with no row, or a row not yet confirmed, has no
+ * local food tax. The same goes when the address can't be placed or the
+ * lookup fails. The order ships at 0% with no note to the customer, and
+ * saves a null rate so the admin order page shows "No local rate on file".
+ * This lasts until checkout uses the state's own address lookup.
  *
  * Special districts (like the Southeast Jefferson County LID) are left out,
  * by Jesse's choice: we charge what DR 1002 lists for the city and county.
@@ -316,13 +321,13 @@ async function quoteTax(
   query: FoodTaxQuery | null,
   subtotalCents: number
 ): Promise<{ taxCents: number; tax: QuoteTax }> {
-  const needsReview = (jurisdiction: string | null = null) => ({
+  const noRate = (jurisdiction: string | null = null) => ({
     taxCents: 0,
-    tax: { status: "needs_review" as const, rateBps: null, jurisdiction, note: TAX_REVIEW_NOTE },
+    tax: { status: "no_rate" as const, rateBps: null, jurisdiction },
   });
 
   // Without a county there is no rate to look up.
-  if (!query?.countyFips) return needsReview();
+  if (!query?.countyFips) return noRate();
 
   let lookup;
   try {
@@ -335,22 +340,22 @@ async function quoteTax(
       "Quote: food tax lookup failed:",
       error instanceof Error ? error.message : "unknown error"
     );
-    return needsReview();
+    return noRate();
   }
 
   if (lookup.status === "unknown") {
     if (lookup.reason === "lookup_failed") console.error("Quote: couldn't read food tax rates.");
-    return needsReview();
+    return noRate();
   }
 
   const rate = lookup.status === "ok" ? lookup.rateBps : null;
   if (rate === null || !Number.isInteger(rate) || rate < 0 || rate > 10_000) {
-    return needsReview(lookup.jurisdiction);
+    return noRate(lookup.jurisdiction);
   }
 
   return {
     taxCents: Math.round((subtotalCents * rate) / 10_000),
-    tax: { status: "ok", rateBps: rate, jurisdiction: lookup.jurisdiction, note: null },
+    tax: { status: "ok", rateBps: rate, jurisdiction: lookup.jurisdiction },
   };
 }
 

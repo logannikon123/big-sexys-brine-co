@@ -21,9 +21,10 @@ import type { FoodTaxKind } from "@/lib/food-tax-rates";
  *    with that code when there is one. Special districts are never added:
  *    the geocoder can't tell whether an address is inside one.
  * 3. If the county, or the city when there is one, has no row, the answer is
- *    "unknown". Checkout must not guess a rate.
+ *    "unknown". Checkout must not guess a rate: it charges no local tax.
  * 4. If any row that applies isn't marked confirmed, the answer is
- *    "unconfirmed". Checkout must not charge tax from it.
+ *    "unconfirmed". Checkout must not charge tax from it: it charges no
+ *    local tax, as for "unknown".
  * 5. Otherwise the answer is "ok", and the rate is the sum of the food rates
  *    of the rows that apply and tax food. Wheat Ridge (3.5%) in Jefferson
  *    County (0.5%) comes to 4.0%. Denver and Broomfield are each one city and
