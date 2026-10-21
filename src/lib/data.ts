@@ -319,6 +319,10 @@ export type PublicStoreSettings = Pick<
   | "shipping_enabled"
   | "jars_per_box"
   | "packing_fee_per_box_cents"
+  | "delivery_min_order_cents"
+  | "delivery_standard_hours"
+  | "rush_fee_cents"
+  | "shipping_states"
 >;
 
 const _getStoreSettingsUncached = async (): Promise<PublicStoreSettings | null> => {
@@ -327,7 +331,7 @@ const _getStoreSettingsUncached = async (): Promise<PublicStoreSettings | null> 
   const { data } = await supabase
     .from("store_settings")
     .select(
-      "orders_open, pickup_enabled, delivery_enabled, shipping_enabled, jars_per_box, packing_fee_per_box_cents"
+      "orders_open, pickup_enabled, delivery_enabled, shipping_enabled, jars_per_box, packing_fee_per_box_cents, delivery_min_order_cents, delivery_standard_hours, rush_fee_cents, shipping_states"
     )
     .eq("id", 1)
     .maybeSingle();
