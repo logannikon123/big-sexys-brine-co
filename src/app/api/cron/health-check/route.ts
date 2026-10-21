@@ -26,7 +26,8 @@ import { squareEnvironment } from "@/lib/square";
  *
  * Vercel signs each run with CRON_SECRET, so nobody else can trigger it.
  * Without CRON_SECRET the route refuses every request. For testing,
- * ?dryRun=1 returns the alerts without sending them.
+ * ?dryRun=1 returns the alerts without sending them, on any copy. Local and
+ * preview copies never send anyway: alertOwner only logs there.
  */
 
 export const dynamic = "force-dynamic";

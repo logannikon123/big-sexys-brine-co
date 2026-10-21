@@ -33,8 +33,11 @@ import {
  * - It never throws, and a failed send never stops the caller. Inside a
  *   request, run it after the answer with next/server's after(), as pay.ts
  *   does for order alerts, so the customer never waits on it.
- * - Outside the live site (local or preview copies) the title starts with
- *   TEST.
+ * - It sends only on the live site (VERCEL_ENV is "production"). Local and
+ *   preview copies never send a real alert and never touch owner_alerts:
+ *   they log what they would have sent and return. Preview copies and the
+ *   live site share one database, so a test alert there could otherwise
+ *   hold back a real one.
  *
  * The rate limit lives in the owner_alerts table, written here with the
  * service role key. If the database can't be reached, each server keeps
@@ -59,6 +62,8 @@ export interface OwnerAlert {
 export interface AlertResult {
   /** False when the same key sent an alert recently, so this one was held back. */
   sent: boolean;
+  /** True when this isn't the live site, so the alert was only logged. */
+  logOnly: boolean;
   count: number;
   pushover: boolean;
   email: boolean;
@@ -156,11 +161,21 @@ async function sendEmail(alert: OwnerAlert, title: string, text: string): Promis
 
 /** Alert Jesse, at most once per key every few hours. Never throws. */
 export async function alertOwner(alert: OwnerAlert): Promise<AlertResult> {
-  const held = { sent: false, count: 0, pushover: false, email: false };
+  const held = { sent: false, logOnly: false, count: 0, pushover: false, email: false };
+
+  // Local and preview copies: say what would have gone out, and stop.
+  if (!isLiveSite()) {
+    console.log(
+      `Owner alert, not sent (not the live site) [${alert.key}]: ${alert.title}\n${alert.message}${
+        alert.url ? `\nOpen: ${alert.url}` : ""
+      }`
+    );
+    return { ...held, logOnly: true };
+  }
+
   try {
     const windowMs = (alert.windowHours ?? DEFAULT_WINDOW_HOURS) * 60 * 60 * 1000;
-    const title = `${isLiveSite() ? "" : "TEST "}${alert.title}`;
-    const input = { key: alert.key, title, now: new Date(), windowMs };
+    const input = { key: alert.key, title: alert.title, now: new Date(), windowMs };
 
     let store = databaseStore();
     let claim;
@@ -189,12 +204,12 @@ export async function alertOwner(alert: OwnerAlert): Promise<AlertResult> {
     ].join("\n");
 
     const [pushover, email] = await Promise.all([
-      sendPushover(alert, title, text).catch(() => false),
-      sendEmail(alert, title, text).catch(() => false),
+      sendPushover(alert, alert.title, text).catch(() => false),
+      sendEmail(alert, alert.title, text).catch(() => false),
     ]);
     // Nothing got through: give the claim back so the next call tries again.
     if (!pushover && !email) await releaseAlert(store, alert.key, claim).catch(() => undefined);
-    return { sent: pushover || email, count: claim.count, pushover, email };
+    return { sent: pushover || email, logOnly: false, count: claim.count, pushover, email };
   } catch (error) {
     console.error("Owner alert failed:", error instanceof Error ? error.message : "unknown error");
     return held;
