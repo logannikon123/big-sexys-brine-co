@@ -1,11 +1,12 @@
 import "server-only";
 import { after } from "next/server";
-import { SquareError } from "square";
+import type { Square } from "square";
 import { notifyOrderPaid } from "@/lib/orders/notify";
 import { recordMarketingOptIn } from "@/lib/marketing-server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSquareClient, squareEnvironment, squareLocationId } from "@/lib/square";
-import { getQuote, type Quote, type QuoteError } from "@/lib/checkout/quote";
+import { getQuote, storeIsOpen, type Quote, type QuoteError } from "@/lib/checkout/quote";
+import { findSquarePayment, readSquareFailure, type SquareFailure } from "@/lib/checkout/square-payment";
 import type { PayInput } from "@/lib/checkout/schema";
 import { formatPrice } from "@/lib/utils";
 
@@ -19,11 +20,20 @@ import { formatPrice } from "@/lib/utils";
  * 3. Ask Square to take the money. The checkout ID is Square's idempotency
  *    key: if the same checkout is sent twice (a double click, or a retry
  *    after a lost connection), Square charges once and answers the same way.
+ *    That works only if the second request matches the first, so the
+ *    checkout page sends the same card code again and the request is built
+ *    from the saved order.
  * 4. Mark the order "paid", with the card brand, last 4 digits and receipt
  *    link, or "payment_failed" with Square's reason.
  *
  * Each checkout ID makes at most one order. A retry with the same ID finds
- * that order again instead of making a second one.
+ * that order again instead of making a second one, and first asks Square
+ * whether the try before already took the money.
+ *
+ * When Square's answer doesn't say whether the card was charged (a lost
+ * connection, a Square outage, a timeout), we ask Square for the payment.
+ * If we still can't tell, the order stays "pending_payment" and the customer
+ * is told not to pay again. The Square webhook has the final word.
  */
 
 /** The version of the store terms the customer agrees to. Change it when /terms changes. */
@@ -53,7 +63,8 @@ export type PayErrorCode =
   | "price_changed"
   | "payment_declined"
   | "payment_failed"
-  | "payment_unavailable";
+  | "payment_unavailable"
+  | "payment_unconfirmed";
 
 export interface PayError {
   ok: false;
@@ -78,7 +89,13 @@ interface ExistingOrder {
   public_token: string;
   status: string;
   total_cents: number;
+  customer_email: string;
+  created_at: string;
+  square_payment_id: string | null;
 }
+
+const ORDER_COLUMNS =
+  "id, order_number, public_token, status, total_cents, customer_email, created_at, square_payment_id";
 
 /** Square's decline codes, in words a customer can act on. */
 const DECLINE_MESSAGES: Record<string, string> = {
@@ -109,14 +126,31 @@ function fail(code: PayErrorCode, message: string, extra: Partial<PayError> = {}
 const SAVE_FAILED = fail(
   "unavailable",
   "We couldn't save your order. Nothing was charged. Please try again in a few minutes.",
+  { retrySameCheckout: false }
+);
+
+/** Square didn't answer, and has no payment for this order yet. A retry uses the same key. */
+const SQUARE_UNREACHABLE = fail(
+  "payment_unavailable",
+  "We couldn't reach our payment service. Please wait a minute and try again. You won't be charged twice.",
   { retrySameCheckout: true }
 );
+
+/** We can't tell whether the card was charged. The order stays pending. */
+function unconfirmed(order: ExistingOrder, reason: string): PayError {
+  console.error(`Pay: couldn't confirm the payment for order #${order.order_number} (${reason}). It stays pending.`);
+  return fail(
+    "payment_unconfirmed",
+    "We couldn't confirm your payment. Please don't pay again; we'll email you within the hour.",
+    { retrySameCheckout: true }
+  );
+}
 
 async function findOrder(checkoutId: string): Promise<ExistingOrder | null> {
   const supabase = await createServiceClient();
   const { data, error } = await supabase
     .from("orders")
-    .select("id, order_number, public_token, status, total_cents")
+    .select(ORDER_COLUMNS)
     .eq("checkout_id", checkoutId)
     .maybeSingle();
   if (error) throw new Error(`couldn't look up the order: ${error.message}`);
@@ -174,7 +208,7 @@ async function saveOrder(input: PayInput, quote: Quote): Promise<ExistingOrder |
       terms_accepted_at: new Date().toISOString(),
       terms_version: TERMS_VERSION,
     })
-    .select("id, order_number, public_token, status, total_cents")
+    .select(ORDER_COLUMNS)
     .single();
 
   if (error || !data) {
@@ -205,10 +239,21 @@ async function saveOrder(input: PayInput, quote: Quote): Promise<ExistingOrder |
   return order;
 }
 
-async function markOrder(orderId: string, fields: Record<string, unknown>) {
+/**
+ * Update a pending order. Returns true if it changed. An order the webhook
+ * has already marked is left alone, so it isn't marked (or emailed about)
+ * twice.
+ */
+async function markOrder(orderId: string, fields: Record<string, unknown>): Promise<boolean> {
   const supabase = await createServiceClient();
-  const { error } = await supabase.from("orders").update(fields).eq("id", orderId);
+  const { data, error } = await supabase
+    .from("orders")
+    .update(fields)
+    .eq("id", orderId)
+    .eq("status", "pending_payment")
+    .select("id");
   if (error) console.error("Pay: couldn't update the order:", error.message);
+  return !error && (data?.length ?? 0) > 0;
 }
 
 function success(order: ExistingOrder, pending: boolean): PaySuccess {
@@ -241,6 +286,100 @@ function keepOptIn(input: PayInput, orderId: string, context: PayContext) {
   );
 }
 
+/** A declined card, as opposed to a request Square refused for another reason. */
+function isDecline(failure: { code: string; category: string }): boolean {
+  return failure.code in DECLINE_MESSAGES || failure.category === "PAYMENT_METHOD_ERROR";
+}
+
+/**
+ * Ask Square to take the money. Every field comes from the saved order or
+ * stays the same, so a retry sends Square exactly the request it sent before.
+ */
+async function charge(
+  saved: ExistingOrder,
+  input: PayInput
+): Promise<{ ok: true; payment?: Square.Payment } | { ok: false; failure: SquareFailure }> {
+  const locationId = squareLocationId();
+  try {
+    const response = await getSquareClient().payments.create({
+      sourceId: input.sourceId,
+      idempotencyKey: input.checkoutId,
+      amountMoney: { amount: BigInt(saved.total_cents), currency: "USD" },
+      ...(locationId ? { locationId } : {}),
+      autocomplete: true,
+      referenceId: String(saved.order_number),
+      buyerEmailAddress: saved.customer_email,
+      note: `Big Sexy's Brine Co. order #${saved.order_number}`,
+    });
+    return { ok: true, payment: response.payment };
+  } catch (error) {
+    return { ok: false, failure: readSquareFailure(error) };
+  }
+}
+
+/** What Square needs to find this order's payment. */
+function lookupFor(order: ExistingOrder) {
+  return {
+    paymentId: order.square_payment_id,
+    orderNumber: order.order_number,
+    totalCents: order.total_cents,
+    createdAt: order.created_at,
+    locationId: squareLocationId(),
+  };
+}
+
+/** Save what Square said about the payment, and answer the customer. */
+async function recordPayment(
+  saved: ExistingOrder,
+  payment: Square.Payment | undefined,
+  input: PayInput,
+  context: PayContext
+): Promise<PayResult> {
+  const card = payment?.cardDetails?.card;
+  const details = {
+    square_payment_id: payment?.id ?? null,
+    square_order_id: payment?.orderId ?? null,
+    square_receipt_url: payment?.receiptUrl ?? null,
+    card_brand: card?.cardBrand ?? null,
+    card_last4: card?.last4 ?? null,
+    payment_error_code: null,
+  };
+  // The customer may have fixed their name or email before a retry. The
+  // Square request keeps the first email, so it matches; the order and
+  // receipt get the new one.
+  const contact = {
+    customer_name: input.customer.name,
+    customer_email: input.customer.email,
+    customer_phone: input.customer.phone || null,
+    customer_notes: input.customer.notes || null,
+  };
+
+  if (payment?.status === "COMPLETED") {
+    const marked = await markOrder(saved.id, {
+      ...details,
+      ...contact,
+      status: "paid",
+      paid_at: new Date().toISOString(),
+    });
+    // Tell Jesse and send the receipt after the customer has their answer.
+    const orderId = saved.id;
+    if (marked) after(() => notifyOrderPaid(orderId));
+    keepOptIn(input, orderId, context);
+    return success(saved, false);
+  }
+  if (payment?.status === "FAILED" || payment?.status === "CANCELED") {
+    await markOrder(saved.id, { ...details, status: "payment_failed", payment_error_code: payment.status });
+    return fail("payment_declined", "Your card was declined. Try another card.", {
+      retrySameCheckout: false,
+    });
+  }
+  // APPROVED or PENDING: Square has the card but hasn't settled it. The
+  // webhook marks the order paid when Square confirms.
+  await markOrder(saved.id, { ...details, ...contact });
+  keepOptIn(input, saved.id, context);
+  return success(saved, true);
+}
+
 export async function placeOrder(
   input: PayInput,
   context: PayContext = { ipAddress: null, userAgent: null }
@@ -253,17 +392,41 @@ export async function placeOrder(
       retrySameCheckout: false,
     });
   }
+  if (existing && existing.status !== "pending_payment") {
+    // Cancelled, refunded or disputed: Jesse has already dealt with it.
+    return fail("payment_failed", "This order is closed. Please contact us if you have questions.", {
+      retrySameCheckout: false,
+    });
+  }
 
-  // A retry after a lost connection: the order is saved, and Square may
-  // already have the payment. Ask Square again with the same key and amount,
-  // without working out the price again.
   let saved = existing;
 
-  if (!saved) {
+  if (saved) {
+    // A retry: the order is saved, and Square may already have the payment.
+    // Look for it first, without working out the price again.
+    const found = await findSquarePayment(getSquareClient(), lookupFor(saved));
+    if (found.kind === "found") return recordPayment(saved, found.payment, input, context);
+    // Not found, or the lookup failed. Sending the same key again can't
+    // charge twice, but it may charge now, so the store must still be open.
+    const open = await storeIsOpen();
+    if (open === null) {
+      return fail("unavailable", "Online ordering isn't working right now. Please try again in a few minutes.", {
+        retrySameCheckout: true,
+      });
+    }
+    if (!open) {
+      return fail("store_closed", "Online ordering is closed right now. Please check back soon.", {
+        retrySameCheckout: true,
+      });
+    }
+  } else {
     // 1. The price, worked out again.
     const quote = await getQuote(input);
     if (!quote.ok) {
-      return fail(quote.code, quote.message, { itemProblems: quote.itemProblems });
+      return fail(quote.code, quote.message, {
+        itemProblems: quote.itemProblems,
+        retrySameCheckout: false,
+      });
     }
     if (quote.totalCents !== input.expectedTotalCents) {
       return fail(
@@ -279,78 +442,48 @@ export async function placeOrder(
   }
 
   // 3. Take the money.
-  const locationId = squareLocationId();
-  let payment;
-  try {
-    const response = await getSquareClient().payments.create({
-      sourceId: input.sourceId,
-      idempotencyKey: input.checkoutId,
-      amountMoney: { amount: BigInt(saved.total_cents), currency: "USD" },
-      ...(locationId ? { locationId } : {}),
-      autocomplete: true,
-      referenceId: String(saved.order_number),
-      buyerEmailAddress: input.customer.email,
-      note: `Big Sexy's Brine Co. order #${saved.order_number}`,
-    });
-    payment = response.payment;
-  } catch (error) {
-    if (error instanceof SquareError && error.errors.length > 0) {
-      const code = String(error.errors[0].code);
-      const declineMessage = DECLINE_MESSAGES[code];
-      if (declineMessage || error.errors[0].category === "PAYMENT_METHOD_ERROR") {
-        await markOrder(saved.id, { status: "payment_failed", payment_error_code: code });
-        return fail("payment_declined", declineMessage ?? "Your card was declined. Try another card.", {
-          retrySameCheckout: false,
-        });
-      }
-      console.error("Pay: Square refused the payment:", code);
-      await markOrder(saved.id, { status: "payment_failed", payment_error_code: code });
-      return fail("payment_failed", "We couldn't take the payment. Nothing was charged. Please try again.", {
+  let attempt = await charge(saved, input);
+  if (!attempt.ok && attempt.failure.kind === "unknown" && !attempt.failure.keyReused) {
+    // No clear answer. Ask again with the same request after a moment:
+    // Square answers with the first try's result, or charges now if the
+    // first try never reached it. A decline is a clear answer; anything
+    // else that isn't a payment leaves us where we were.
+    console.error("Pay: no clear answer from Square, asking again:", attempt.failure.code);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    const again = await charge(saved, input);
+    if (again.ok || (again.failure.kind === "rejected" && isDecline(again.failure))) attempt = again;
+  }
+
+  if (!attempt.ok && attempt.failure.kind === "rejected") {
+    // Square answered, and took no money.
+    const failure = attempt.failure;
+    await markOrder(saved.id, { status: "payment_failed", payment_error_code: failure.code });
+    if (isDecline(failure)) {
+      return fail("payment_declined", DECLINE_MESSAGES[failure.code] ?? "Your card was declined. Try another card.", {
         retrySameCheckout: false,
       });
     }
-    // No clear answer from Square (for example, a lost connection). The card
-    // may or may not have been charged, so leave the order pending. Trying
-    // again with the same checkout ID is safe: Square charges at most once.
-    console.error(
-      "Pay: no answer from Square:",
-      error instanceof Error ? error.message : "unknown error"
-    );
-    return fail(
-      "payment_unavailable",
-      "We couldn't reach our payment service. Please wait a minute and try again. You won't be charged twice.",
-      { retrySameCheckout: true }
-    );
-  }
-
-  // 4. Record the result.
-  const card = payment?.cardDetails?.card;
-  const details = {
-    square_payment_id: payment?.id ?? null,
-    square_order_id: payment?.orderId ?? null,
-    square_receipt_url: payment?.receiptUrl ?? null,
-    card_brand: card?.cardBrand ?? null,
-    card_last4: card?.last4 ?? null,
-    payment_error_code: null,
-  };
-
-  if (payment?.status === "COMPLETED") {
-    await markOrder(saved.id, { ...details, status: "paid", paid_at: new Date().toISOString() });
-    // Tell Jesse and send the receipt after the customer has their answer.
-    const orderId = saved.id;
-    after(() => notifyOrderPaid(orderId));
-    keepOptIn(input, orderId, context);
-    return success(saved, false);
-  }
-  if (payment?.status === "FAILED" || payment?.status === "CANCELED") {
-    await markOrder(saved.id, { ...details, status: "payment_failed", payment_error_code: payment.status });
-    return fail("payment_declined", "Your card was declined. Try another card.", {
+    console.error("Pay: Square refused the payment:", failure.code);
+    return fail("payment_failed", "We couldn't take the payment. Nothing was charged. Please try again.", {
       retrySameCheckout: false,
     });
   }
-  // APPROVED or PENDING: Square has the card but hasn't settled it. The
-  // webhook marks the order paid when Square confirms.
-  await markOrder(saved.id, details);
-  keepOptIn(input, saved.id, context);
-  return success(saved, true);
+
+  if (!attempt.ok) {
+    // Still no clear answer. The card may or may not have been charged, so
+    // look for the payment before saying anything, and leave the order
+    // pending. Square's payment list can run a few seconds behind.
+    const failure = attempt.failure;
+    console.error("Pay: no clear answer from Square:", failure.code);
+    const found = await findSquarePayment(getSquareClient(), lookupFor(saved));
+    if (found.kind === "found") return recordPayment(saved, found.payment, input, context);
+    // Nothing there yet. A retry with the same key and request is safe,
+    // unless Square has already said the request doesn't match.
+    const keyReused = failure.kind === "unknown" && failure.keyReused;
+    if (found.kind === "none" && !keyReused) return SQUARE_UNREACHABLE;
+    return unconfirmed(saved, failure.code);
+  }
+
+  // 4. Record the result.
+  return recordPayment(saved, attempt.payment, input, context);
 }

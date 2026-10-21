@@ -23,6 +23,7 @@ const STATUS_FOR: Partial<Record<PayErrorCode, number>> = {
   unavailable: 503,
   address_service_down: 503,
   payment_unavailable: 503,
+  payment_unconfirmed: 503,
   store_closed: 403,
   price_changed: 409,
   payment_declined: 402,
