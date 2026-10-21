@@ -325,8 +325,9 @@ export function BannerEditor({
 
   return (
     <div className="grid gap-6 xl:grid-cols-2">
-      {/* Live preview: on top on phones, on the right on big screens. */}
-      <div className="xl:order-2">
+      {/* Live preview: on top on phones, on the right on big screens.
+          min-w-0 lets the column shrink below the 1280 px preview inside it. */}
+      <div className="min-w-0 xl:order-2">
         <div className="space-y-3 xl:sticky xl:top-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-lg font-semibold">Preview</h2>
@@ -379,7 +380,7 @@ export function BannerEditor({
       </div>
 
       {/* The form */}
-      <div className="space-y-6 xl:order-1">
+      <div className="min-w-0 space-y-6 xl:order-1">
         <Card>
           <CardHeader>
             <CardTitle>Show the banner</CardTitle>
