@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/tax-rate-reminder",
       "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/health-check",
+      "schedule": "*/15 * * * *"
     }
   ]
 }
