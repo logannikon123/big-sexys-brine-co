@@ -309,13 +309,13 @@ export function FoodTaxRatesTable({ rows }: { rows: FoodTaxRate[] }) {
         <div className="space-y-1">
           <p className="font-medium">
             Have your accountant check these. Checkout charges tax only from
-            rows marked Confirmed.
+            rows marked Confirmed. An address with no confirmed row pays no
+            local tax.
           </p>
           <p className="text-muted-foreground">
             {confirmedCount} of {rows.length} rows confirmed. Checkout adds the
-            city&apos;s rate to the county&apos;s. It never adds a district on
-            its own, because it can&apos;t tell which addresses are inside one,
-            so orders in Jefferson and Douglas counties come to you for review.
+            city&apos;s rate to the county&apos;s. It never adds a district,
+            because it can&apos;t tell which addresses are inside one.
           </p>
         </div>
       </div>

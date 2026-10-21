@@ -76,6 +76,7 @@ export interface Order {
   tax_cents: number;
   /** subtotal + delivery + rush + packing + postage + tax - discount */
   total_cents: number;
+  /** Null when checkout had no local rate on file and charged 0%. */
   tax_rate_bps: number | null;
   tax_jurisdiction: string | null;
   /** Given back through Square, kept up to date by the webhook. */
