@@ -7,6 +7,8 @@ import {
   MessageSquareQuote,
   Images,
   ShoppingBag,
+  ChartColumn,
+  ChevronRight,
 } from "lucide-react";
 import Link from "next/link";
 import { ClearCacheButton } from "@/components/admin/clear-cache-button";
@@ -129,6 +131,20 @@ export default async function AdminDashboardPage() {
           </Link>
         ))}
       </div>
+
+      <Link
+        href="/admin/sales"
+        className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-muted-foreground/30"
+      >
+        <ChartColumn className="h-6 w-6 shrink-0 text-brand-orange" />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">Sales</p>
+          <p className="text-sm text-muted-foreground">
+            Money taken in, best sellers and customers. Download as CSV.
+          </p>
+        </div>
+        <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+      </Link>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Upcoming Events */}
