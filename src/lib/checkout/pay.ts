@@ -1,5 +1,7 @@
 import "server-only";
+import { after } from "next/server";
 import { SquareError } from "square";
+import { notifyOrderPaid } from "@/lib/orders/notify";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSquareClient, squareEnvironment, squareLocationId } from "@/lib/square";
 import { getQuote, type Quote, type QuoteError } from "@/lib/checkout/quote";
@@ -310,6 +312,9 @@ export async function placeOrder(input: PayInput): Promise<PayResult> {
 
   if (payment?.status === "COMPLETED") {
     await markOrder(saved.id, { ...details, status: "paid", paid_at: new Date().toISOString() });
+    // Tell Jesse and send the receipt after the customer has their answer.
+    const orderId = saved.id;
+    after(() => notifyOrderPaid(orderId));
     return success(saved, false);
   }
   if (payment?.status === "FAILED" || payment?.status === "CANCELED") {
