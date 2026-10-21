@@ -1,6 +1,9 @@
-// DRAFT for Jesse to review. This page is a plain-English starting point,
-// not legal advice. Check it (or have a lawyer check it) before the online
-// store opens.
+// DRAFT for Jesse to review. Refunds through Square match how the store
+// takes payment. The rest is Jesse's policy, which no code enforces: no
+// returns, the 72-hour window to report a problem, and cancelling only until
+// the order is packed or out for delivery. Take this marker off once he
+// confirms them. This page is a plain-English starting point, not legal
+// advice.
 import {
   POLICY_EMAIL,
   PolicyLink,
@@ -76,8 +79,9 @@ export default function RefundsPage() {
 
       <PolicySection title="How refunds are paid">
         <p>
-          Refunds go back to the card you paid with. Your bank decides how
-          long the money takes to show up, often a few business days.
+          We refund through Square, our card processor, back to the card you
+          paid with. Your bank decides how long the money takes to show up,
+          often a few business days.
         </p>
       </PolicySection>
     </PolicyPage>

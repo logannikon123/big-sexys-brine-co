@@ -167,7 +167,7 @@ export default async function ProductDetailPage({
                 <>
                   <AddToCart productId={product.id} productName={product.name} />
                   <p className="text-xs text-brand-cream/60">
-                    Pick up in Lakewood, local delivery, or shipping in Colorado.
+                    Pick up in Lakewood, local delivery, or shipping (Colorado only).
                   </p>
                 </>
               ) : (
@@ -198,9 +198,9 @@ export default async function ProductDetailPage({
                   </div>
                 </>
               )}
+              {/* Colorado's cottage food law wants this notice where people buy. */}
+              <CottageFoodNotice className="border-t border-brand-brown/20 pt-4" />
             </div>
-
-            <CottageFoodNotice />
           </div>
         </div>
 

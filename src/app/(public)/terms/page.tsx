@@ -1,6 +1,9 @@
-// DRAFT for Jesse to review. This page is a plain-English starting point,
-// not legal advice. Check it (or have a lawyer check it) before the online
-// store opens.
+// DRAFT for Jesse to review. Prices, payment, tax and where we sell match
+// checkout. Still Jesse's word, not the code's: what each jar label lists,
+// and that the kitchen may handle other allergens. Take this marker off once
+// he confirms them. This page is a plain-English starting point, not legal
+// advice. When the wording here changes, change TERMS_VERSION in
+// src/lib/checkout/pay.ts too, so new orders record the new version.
 import { CottageFoodNotice } from "@/components/legal/CottageFoodNotice";
 import {
   PolicyLink,
@@ -33,8 +36,15 @@ export default function TermsPage() {
       <PolicySection title="Prices and payment">
         <p>
           All prices are in US dollars. Checkout shows the full cost before
-          you pay, including any delivery fee, packing fee, postage and tax.
-          You pay by card when you place your order.
+          you pay, including any delivery fee, rush fee, packing fee, postage
+          and tax. You pay by card when you place your order, and Square, our
+          card processor, takes the payment.
+        </p>
+        <p>
+          We charge the local sales tax on food where you get your jars: the
+          pickup spot for pickup orders, or your address for delivery and
+          shipping. If we have no rate on file for that place, we charge no
+          tax. We don&apos;t charge tax on our fees.
         </p>
       </PolicySection>
 
@@ -48,7 +58,7 @@ export default function TermsPage() {
 
       <PolicySection title="Where we deliver">
         <p>
-          For now we deliver and ship to Colorado addresses only. See{" "}
+          We sell, deliver and ship in Colorado only. See{" "}
           <PolicyLink href="/shipping">Shipping, Delivery and Pickup</PolicyLink>{" "}
           for pickup, delivery areas, fees and timing.
         </p>
@@ -56,9 +66,9 @@ export default function TermsPage() {
 
       <PolicySection title="Ingredients and allergens">
         <p>
-          Each product page and each jar label lists the ingredients and
-          allergens. If you have a food allergy, please read them before you
-          order and again before you eat. Our kitchen is a home kitchen that
+          Each product page lists the ingredients, and each jar label lists
+          the ingredients and allergens. If you have a food allergy, please
+          read them before you order and again before you eat. Our kitchen is a home kitchen that
           may also handle other common allergens.
         </p>
       </PolicySection>
