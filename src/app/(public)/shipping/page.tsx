@@ -1,9 +1,8 @@
-// DRAFT for Jesse to review. The fees, distances, box size and areas below
-// come live from Store settings and match checkout. Two lines are still
-// Jesse's policy, not something the code enforces: how soon orders usually
-// ship, and the 72-hour window to report a broken jar. Take this marker off
-// once he confirms them. This page is a plain-English starting point, not
-// legal advice.
+// Jesse confirmed this policy in October 2026. The fees, distances, box size
+// and areas below come live from Store settings and match checkout. Two
+// lines are his policy, not something the code enforces: how soon orders
+// usually ship, and the 72-hour window to report a broken jar. This page is
+// a plain-English starting point, not legal advice.
 import { CottageFoodNotice } from "@/components/legal/CottageFoodNotice";
 import {
   PolicyLink,

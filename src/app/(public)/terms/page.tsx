@@ -1,9 +1,9 @@
-// DRAFT for Jesse to review. Prices, payment, tax and where we sell match
-// checkout. Still Jesse's word, not the code's: what each jar label lists,
-// and that the kitchen may handle other allergens. Take this marker off once
-// he confirms them. This page is a plain-English starting point, not legal
-// advice. When the wording here changes, change TERMS_VERSION in
-// src/lib/checkout/pay.ts too, so new orders record the new version.
+// Jesse confirmed these terms in October 2026. Prices, payment, tax and where
+// we sell match checkout. What each jar label lists, and that the kitchen
+// may handle other allergens, are his word, not the code's. This page is a
+// plain-English starting point, not legal advice. When the wording here
+// changes, change TERMS_VERSION in src/lib/checkout/pay.ts too, so new
+// orders record the new version.
 import { CottageFoodNotice } from "@/components/legal/CottageFoodNotice";
 import {
   PolicyLink,

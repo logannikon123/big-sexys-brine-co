@@ -1,9 +1,9 @@
-// DRAFT for Jesse to review. Refunds through Square match how the store
-// takes payment. The rest is Jesse's policy, which no code enforces: no
-// returns, the 72-hour window to report a problem, and cancelling only until
-// the order is packed or out for delivery. Take this marker off once he
-// confirms them. This page is a plain-English starting point, not legal
-// advice.
+// Jesse confirmed this policy in October 2026. Refunds through Square match
+// how the store takes payment. The rest is his policy, which no code
+// enforces: no returns, the 72-hour window to report a problem, and
+// cancelling only until the order is packed or out for delivery. This page
+// is a plain-English starting point, not legal advice. When the wording
+// changes, change TERMS_VERSION in src/lib/checkout/pay.ts too.
 import {
   POLICY_EMAIL,
   PolicyLink,
