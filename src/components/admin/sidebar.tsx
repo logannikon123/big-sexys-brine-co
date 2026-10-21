@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   ShoppingBag,
+  Mail,
   Package,
   CalendarDays,
   MessageSquareQuote,
@@ -26,6 +27,7 @@ import { useState } from "react";
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
+  { href: "/admin/marketing", label: "Marketing", icon: Mail },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/categories", label: "Categories", icon: Tags },
   { href: "/admin/events", label: "Events", icon: CalendarDays },

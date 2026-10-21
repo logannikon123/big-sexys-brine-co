@@ -134,6 +134,8 @@ export const payInputSchema = quoteInputSchema.extend({
   expectedTotalCents: z.number().int().min(0),
   /** Square's one-time code for the card. */
   sourceId: z.string().min(1).max(500),
+  /** True when the customer ticked the marketing email box (it starts ticked). */
+  marketingOptIn: z.boolean().optional(),
 });
 
 export type PayInput = z.infer<typeof payInputSchema>;
