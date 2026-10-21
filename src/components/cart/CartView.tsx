@@ -180,13 +180,12 @@ export function CartView({ products, packing }: CartViewProps) {
                 box of {packing.jarsPerBox} {packing.jarsPerBox === 1 ? "jar" : "jars"}.
               </p>
             )}
-            <button
-              type="button"
-              disabled
-              className="inline-flex min-h-11 w-full cursor-not-allowed items-center justify-center rounded-full bg-brand-orange/40 px-6 py-3 font-semibold text-white/80"
+            <Link
+              href="/checkout"
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-brand-orange px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-orange/90"
             >
-              Checkout coming soon
-            </button>
+              Checkout
+            </Link>
             <p className="text-sm text-brand-cream/60">
               See how{" "}
               <Link href="/shipping" className="underline hover:text-brand-orange">
