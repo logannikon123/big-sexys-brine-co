@@ -10,7 +10,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { isAdmin } from "@/lib/supabase/is-admin";
-import { parseSalesFilters } from "@/lib/admin/sales-filters";
+import { parseSalesFilters, rangeFileTag } from "@/lib/admin/sales-filters";
 import { loadSalesStats } from "@/lib/admin/sales-data";
 import { customersCsv, productsCsv } from "@/lib/admin/sales-csv";
 import { denverDateString } from "@/lib/admin/sales-stats";
@@ -51,7 +51,7 @@ export async function GET(
 
   const csv = kind === "products" ? productsCsv(stats.products) : customersCsv(stats.customers);
   const today = denverDateString(new Date().toISOString());
-  const name = `big-sexys-${kind}-${filters.range}${filters.includeTests ? "-with-tests" : ""}-${today}.csv`;
+  const name = `big-sexys-${kind}-${rangeFileTag(filters)}${filters.includeTests ? "-with-tests" : ""}-${today}.csv`;
 
   return new Response(BOM + csv, {
     headers: {

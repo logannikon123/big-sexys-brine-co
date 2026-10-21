@@ -55,7 +55,7 @@ export default async function AdminSalesPage({
         </Card>
       ) : (
         <>
-          <section aria-label={`Totals, ${rangeLabel(filters.range)}`}>
+          <section aria-label={`Totals, ${rangeLabel(filters)}`}>
             <SalesSummaryTiles summary={stats.summary} />
           </section>
           <ProductSalesTable products={stats.products} filters={filters} />

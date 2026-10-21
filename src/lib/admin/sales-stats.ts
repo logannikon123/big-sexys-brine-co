@@ -153,6 +153,30 @@ export function rangeStart(range: SalesRangeKey, now: Date = new Date()): Date |
   return denverMidnight(first.getUTCFullYear(), first.getUTCMonth() + 1, first.getUTCDate());
 }
 
+/** True when the text is a real calendar date written YYYY-MM-DD. */
+export function isIsoDate(text: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const [y, m, d] = text.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
+
+/**
+ * A custom range from one Colorado calendar date to another, both days
+ * included: from midnight at the start of "from" to midnight at the end of
+ * "to". Dates are YYYY-MM-DD and already checked.
+ */
+export function customRangeBounds(from: string, to: string): { start: Date; end: Date } {
+  const [fy, fm, fd] = from.split("-").map(Number);
+  const [ty, tm, td] = to.split("-").map(Number);
+  // Date.UTC rolls day 32 over into the next month, and so on.
+  const after = new Date(Date.UTC(ty, tm - 1, td + 1));
+  return {
+    start: denverMidnight(fy, fm, fd),
+    end: denverMidnight(after.getUTCFullYear(), after.getUTCMonth() + 1, after.getUTCDate()),
+  };
+}
+
 /** "2026-10-19": the Colorado calendar date of a moment. */
 export function denverDateString(iso: string): string {
   const { year, month, day } = denverDate(new Date(iso));
@@ -230,6 +254,8 @@ export interface SalesStats {
 export interface SalesOptions {
   /** Leave out orders before this moment. Null means all time. */
   start: Date | null;
+  /** Leave out orders at or after this moment. Null means up to now. */
+  end?: Date | null;
   includeTests: boolean;
 }
 
@@ -257,9 +283,11 @@ function productKey(item: SalesItemRow): string {
 /** The orders that pass the date and test filters, newest first. */
 export function filterOrders(rows: readonly SalesOrderRow[], options: SalesOptions): SalesOrderRow[] {
   const startMs = options.start?.getTime() ?? null;
+  const endMs = options.end?.getTime() ?? null;
   return rows
     .filter((o) => options.includeTests || !isTestOrder(o))
     .filter((o) => startMs === null || new Date(o.created_at).getTime() >= startMs)
+    .filter((o) => endMs === null || new Date(o.created_at).getTime() < endMs)
     .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.order_number - a.order_number);
 }
 

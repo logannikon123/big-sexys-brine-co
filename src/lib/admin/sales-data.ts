@@ -12,13 +12,12 @@ import { isOrdersDemo } from "@/app/admin/orders/order-data";
 import {
   LOADED_STATUSES,
   computeSalesStats,
-  rangeStart,
   sortCustomers,
   sortProducts,
   type SalesOrderRow,
   type SalesStats,
 } from "./sales-stats";
-import type { SalesFilters } from "./sales-filters";
+import { rangeBounds, type SalesFilters } from "./sales-filters";
 
 /** Supabase sends at most 1000 rows per request. */
 const PAGE_SIZE = 1000;
@@ -29,7 +28,7 @@ const COLUMNS =
 const LOAD_ERROR =
   "The sales numbers didn't load. Reload the page. If it keeps happening, tell Nick.";
 
-async function loadRows(filters: SalesFilters, start: Date | null): Promise<SalesOrderRow[]> {
+async function loadRows(filters: SalesFilters, start: Date | null, end: Date | null): Promise<SalesOrderRow[]> {
   if (isOrdersDemo()) {
     const { DEMO_ORDERS } = await import("@/app/admin/orders/demo-orders");
     return DEMO_ORDERS.map(({ order, items }) => ({ ...order, order_items: items }));
@@ -46,6 +45,7 @@ async function loadRows(filters: SalesFilters, start: Date | null): Promise<Sale
       .order("id", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
     if (start) query = query.gte("created_at", start.toISOString());
+    if (end) query = query.lt("created_at", end.toISOString());
     // Orders with no Square system recorded are not tests, so keep them.
     if (!filters.includeTests) {
       query = query.or("square_environment.is.null,square_environment.neq.sandbox");
@@ -67,16 +67,16 @@ export interface SalesResult {
 
 /** The stats for the chosen range, with the tables sorted as asked. */
 export async function loadSalesStats(filters: SalesFilters): Promise<SalesResult> {
-  const start = rangeStart(filters.range);
+  const { start, end } = rangeBounds(filters);
   let rows: SalesOrderRow[];
   try {
-    rows = await loadRows(filters, start);
+    rows = await loadRows(filters, start, end);
   } catch (e) {
     return { stats: null, error: e instanceof Error ? e.message : LOAD_ERROR };
   }
   // The database already filtered, but the stats module applies the same
   // rules again, so its numbers never depend on how the rows were loaded.
-  const stats = computeSalesStats(rows, { start, includeTests: filters.includeTests });
+  const stats = computeSalesStats(rows, { start, end, includeTests: filters.includeTests });
   return {
     stats: {
       ...stats,
