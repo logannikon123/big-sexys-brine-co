@@ -211,17 +211,24 @@ requests like any other: checks must pass, and Jesse approves the merge.
   logs, commits or pull requests. This repo is public, so anything committed is visible to everyone.
 - `.env.example` is committed on purpose and holds placeholders only. When you add a new setting, add
   its name to `.env.example` with a placeholder value, never the real one.
-- `SUPABASE_SERVICE_ROLE_KEY` bypasses all database security. Use it only in server code that needs it
-  (today, only `src/app/api/contest/route.ts`), and never in anything sent to the browser. Checkout and
-  the Square webhook (both coming) will also use it, because they are the only code that writes orders.
+- `SUPABASE_SERVICE_ROLE_KEY` bypasses all database security. Use it only in server code that needs it,
+  and never in anything sent to the browser. Today that is the contest form
+  (`src/app/api/contest/route.ts`), checkout (`src/lib/checkout/`), the Square webhook
+  (`src/lib/square-webhook.ts`), order alerts (`src/lib/orders/notify.ts`) and the customer order page
+  (`src/lib/orders/public-order.ts`). Checkout and the webhook are the only code that writes orders.
 - Production values are set in Vercel. Change them there, then ask Jesse whether to redeploy.
-- Online ordering (coming soon) adds these settings: `NEXT_PUBLIC_SQUARE_APPLICATION_ID`,
+- Online ordering (live since October 2026) uses these settings: `NEXT_PUBLIC_SQUARE_APPLICATION_ID`,
   `NEXT_PUBLIC_SQUARE_LOCATION_ID`, `NEXT_PUBLIC_SQUARE_ENVIRONMENT`, `SQUARE_ACCESS_TOKEN`,
   `SQUARE_WEBHOOK_SIGNATURE_KEY`, `SQUARE_WEBHOOK_URL`, `ORS_API_KEY`, `PUSHOVER_TOKEN`, `PUSHOVER_USER`
   and `ORDER_ALERT_EMAIL`. Jesse sets the real values in Vercel himself; never ask for them in chat.
   Preview and Development use Square sandbox values, and Production uses live values. Only
   `NEXT_PUBLIC_` settings reach the browser, so they hold IDs only, never secrets. Server code gets
   its Square client from `src/lib/square.ts`.
+- The Square webhook (`/api/square/webhook`) is set up in Square's Production settings only, pointing
+  at `https://bigsexysbrine.co/api/square/webhook`. Preview copies sit behind Vercel's login, so there
+  is no sandbox webhook.
+- `RESEND_API_KEY` is set in Vercel for Production only, so preview copies send no email. Local
+  copies use the key in `.env.local`.
 
 ## Commands
 
@@ -341,8 +348,12 @@ Other known issues:
   send to yourself.
 - The old inbound email hook (`src/app/api/email/inbound/route.ts`) was removed in October 2026. It
   had no signature check and never received mail. ImprovMX does that job now, so don't bring it back.
-- Resend, which sends the contact and contest form emails, is Nick's account. As of October 2026 the
-  two Resend records on `send.bigsexysbrine.co` (an MX record and an SPF TXT record) are missing from
-  Vercel DNS. Resend's DKIM record is present, so mail still goes out. Ask Nick for the two values.
+- Resend, which sends the contact and contest form emails and the order emails, is Nick's account.
+  Its records live in Vercel DNS: the DKIM TXT record `resend._domainkey`, plus an MX record
+  (`feedback-smtp.us-east-1.amazonses.com`, priority 10) and an SPF TXT record
+  (`v=spf1 include:amazonses.com ~all`) on `send.bigsexysbrine.co`, added on 2026-10-20. Before
+  that, Resend refused every email from the domain. Resend's page shows the domain as "partially
+  verified" because its optional receiving feature wants the root MX record, which ImprovMX uses.
+  Leave receiving off.
 - Product photos in Supabase Storage are 11 to 17 MB each. The admin uploader should shrink images
   before upload.
