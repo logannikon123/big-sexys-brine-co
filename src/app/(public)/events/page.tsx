@@ -1,5 +1,6 @@
 import { Container } from "@/components/layout/Container";
-import { getUpcomingEvents, getPastEvents } from "@/lib/data";
+import { getUpcomingEvents, getPastEvents, getRetailLocations } from "@/lib/data";
+import { RetailLocations } from "@/components/find-us/RetailLocations";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Calendar, MapPin, Clock, Repeat } from "lucide-react";
@@ -12,10 +13,10 @@ import type { Event } from "@/types";
 export const metadata: Metadata = {
   title: "Find Us",
   description:
-    "Find Big Sexy's Brine Co. at farmers markets, festivals, and pop-ups across the Denver metro area. Come say hi and grab a jar.",
+    "Find Big Sexy's Brine Co. in shops, and at farmers markets, festivals, and pop-ups across the Denver metro area. Come say hi and grab a jar.",
   openGraph: {
     title: "Find Us | Big Sexy's Brine Co.",
-    description: "Find Big Sexy's at farmers markets, festivals, and pop-ups across Denver. Come say hi and grab a jar.",
+    description: "Find Big Sexy's in shops and at farmers markets, festivals, and pop-ups across Denver. Come say hi and grab a jar.",
     images: [{ url: "/images/logo/logo-transparent.png" }],
   },
 };
@@ -84,8 +85,11 @@ function formatEventDateBadge(event: Event): { top: string; bottom: string } {
 }
 
 export default async function EventsPage() {
-  const upcoming = await getUpcomingEvents();
-  const past = await getPastEvents();
+  const [upcoming, past, stores] = await Promise.all([
+    getUpcomingEvents(),
+    getPastEvents(),
+    getRetailLocations(),
+  ]);
 
   return (
     <>
@@ -96,16 +100,19 @@ export default async function EventsPage() {
         <Container>
           <div className="text-center mb-12">
             <Badge className="bg-brand-gold/10 text-brand-gold border-brand-gold/20 mb-4">
-              Markets &amp; Festivals
+              Stores &amp; Markets
             </Badge>
           <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold text-brand-cream">
             Find Us
           </h1>
           <p className="mt-4 text-brand-cream/60 max-w-2xl mx-auto text-lg">
-            We set up, we hand out samples, we talk your ear off about brine
-            ratios. Here&apos;s where you can catch us next across Colorado.
+            Pick up a jar at a shop near you, or catch us in person: we set up,
+            we hand out samples, we talk your ear off about brine ratios.
           </p>
         </div>
+
+        {/* Retail Locations */}
+        <RetailLocations locations={stores} />
 
         {/* Upcoming Events */}
         <div className="mb-16">

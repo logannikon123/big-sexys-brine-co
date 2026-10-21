@@ -32,6 +32,12 @@ INSERT INTO events (id, name, date, time, location, address, type, description) 
 
 SELECT setval('events_id_seq', (SELECT MAX(id) FROM events));
 
+-- Retail locations
+INSERT INTO retail_locations (id, name, address, hours, image_url, is_pickup_location, is_visible, sort_order) VALUES
+(1, 'The Karma House', '8402 W Colfax Ave, Lakewood, CO 80215', NULL, NULL, true, true, 0);
+
+SELECT setval('retail_locations_id_seq', (SELECT MAX(id) FROM retail_locations));
+
 -- Testimonials
 INSERT INTO testimonials (id, quote, author, product) VALUES
 (1, 'I''ve tried fancy pickles from all over. Nothing comes close. The crunch is real, the heat sneaks up on you, and the jar was gone in two days.', 'Mike R.', 'Spicy Pickles'),

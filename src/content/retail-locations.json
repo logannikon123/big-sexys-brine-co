@@ -1,0 +1,12 @@
+[
+  {
+    "id": 1,
+    "name": "The Karma House",
+    "address": "8402 W Colfax Ave, Lakewood, CO 80215",
+    "hours": null,
+    "image_url": null,
+    "is_pickup_location": true,
+    "is_visible": true,
+    "sort_order": 0
+  }
+]

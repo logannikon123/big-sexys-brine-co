@@ -56,6 +56,21 @@ CREATE TABLE IF NOT EXISTS events (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Retail locations: stores that carry the jars, shown on the Find Us page
+-- above the events (see supabase/migrations/20261021204139_retail_locations.sql).
+CREATE TABLE IF NOT EXISTS retail_locations (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL CHECK (btrim(name) <> ''),
+  address TEXT NOT NULL CHECK (btrim(address) <> ''),
+  hours TEXT,
+  image_url TEXT,
+  is_pickup_location BOOLEAN NOT NULL DEFAULT false,
+  is_visible BOOLEAN NOT NULL DEFAULT true,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Testimonials table
 CREATE TABLE IF NOT EXISTS testimonials (
   id SERIAL PRIMARY KEY,
@@ -345,6 +360,11 @@ CREATE TRIGGER store_settings_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_updated_at();
 
+CREATE TRIGGER retail_locations_updated_at
+  BEFORE UPDATE ON retail_locations
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at();
+
 CREATE TRIGGER store_private_settings_updated_at
   BEFORE UPDATE ON store_private_settings
   FOR EACH ROW
@@ -364,6 +384,7 @@ CREATE TRIGGER food_tax_rates_updated_at
 CREATE INDEX IF NOT EXISTS idx_product_categories_product ON product_categories(product_id);
 CREATE INDEX IF NOT EXISTS idx_product_categories_category ON product_categories(category_id);
 CREATE INDEX IF NOT EXISTS idx_events_is_recurring ON events(is_recurring);
+CREATE INDEX IF NOT EXISTS idx_retail_locations_sort_order ON retail_locations(sort_order);
 CREATE INDEX IF NOT EXISTS idx_product_images_product_id ON product_images(product_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status_created ON orders(status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_orders_created ON orders(created_at DESC);
@@ -375,6 +396,8 @@ ALTER TABLE categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE products ENABLE ROW LEVEL SECURITY;
 ALTER TABLE product_categories ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE retail_locations ENABLE ROW LEVEL SECURITY;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON retail_locations FROM anon;
 ALTER TABLE testimonials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE class_info ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gallery_images ENABLE ROW LEVEL SECURITY;
@@ -409,6 +432,7 @@ CREATE POLICY "Public read categories" ON categories FOR SELECT USING (true);
 CREATE POLICY "Public read products" ON products FOR SELECT USING (true);
 CREATE POLICY "Public read product_categories" ON product_categories FOR SELECT USING (true);
 CREATE POLICY "Public read events" ON events FOR SELECT USING (true);
+CREATE POLICY "Public read retail_locations" ON retail_locations FOR SELECT USING (true);
 CREATE POLICY "Public read testimonials" ON testimonials FOR SELECT USING (true);
 CREATE POLICY "Public read class_info" ON class_info FOR SELECT USING (true);
 CREATE POLICY "Public read gallery_images" ON gallery_images FOR SELECT USING (true);
@@ -442,6 +466,10 @@ CREATE POLICY "Admin delete product_categories" ON product_categories FOR DELETE
 CREATE POLICY "Admin insert events" ON events FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
 CREATE POLICY "Admin update events" ON events FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
 CREATE POLICY "Admin delete events" ON events FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+CREATE POLICY "Admin insert retail_locations" ON retail_locations FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update retail_locations" ON retail_locations FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete retail_locations" ON retail_locations FOR DELETE TO authenticated USING ((select public.is_admin()));
 
 CREATE POLICY "Admin insert testimonials" ON testimonials FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
 CREATE POLICY "Admin update testimonials" ON testimonials FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
