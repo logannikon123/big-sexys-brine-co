@@ -141,7 +141,7 @@ function unconfirmed(order: ExistingOrder, reason: string): PayError {
   console.error(`Pay: couldn't confirm the payment for order #${order.order_number} (${reason}). It stays pending.`);
   return fail(
     "payment_unconfirmed",
-    "We couldn't confirm your payment. Please don't pay again; we'll email you within the hour.",
+    "We couldn't confirm your payment. Please don't pay again; we'll email you soon.",
     { retrySameCheckout: true }
   );
 }
