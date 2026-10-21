@@ -119,7 +119,9 @@ export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const asked = params.get("date");
   const date = asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) ? asked : storeDate(new Date());
-  const reminder = taxReminderFor(date);
+  const found = taxReminderFor(date);
+  // A run for a made-up date is a test, so say so in the title.
+  const reminder = found && asked ? { ...found, title: `TEST ${found.title}` } : found;
   if (!reminder) {
     return NextResponse.json({ ok: true, date, reminder: null }, { headers: NO_STORE });
   }
