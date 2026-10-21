@@ -23,7 +23,8 @@
 --
 -- Rows are confirmed, so checkout charges them, except Loveland, Grand
 -- Junction and Basalt. An address with an unconfirmed row, or no row, gets
--- no local tax and comes to Jesse for review (his decision, 2026-10-21).
+-- no local tax (his decision, 2026-10-21). The admin order page shows
+-- "No local rate on file" on those orders.
 -- Basalt stays unconfirmed because the Pitkin County rate is lower inside
 -- Basalt than this table can show (see its note).
 --
@@ -295,7 +296,7 @@ VALUES
     ''),
   ('city', 'Basalt', '0804935', true, 300, 'state', false,
     'DR 1002, July 2026, state-collected city table: https://tax.colorado.gov/DR1002',
-    'Not confirmed on purpose: in the Pitkin County part of Basalt the county rate is 2.6%, but checkout would add the Pitkin County row''s 3.6% and charge 1% too much. Until checkout can handle that, Basalt orders get no local tax and come to you for review. Lies in Eagle and Pitkin counties.'),
+    'Not confirmed on purpose: in the Pitkin County part of Basalt the county rate is 2.6%, but checkout would add the Pitkin County row''s 3.6% and charge 1% too much. Until checkout can handle that, Basalt orders get no local tax. Lies in Eagle and Pitkin counties.'),
   ('city', 'Bayfield', '0805265', true, 300, 'state', true,
     'DR 1002, July 2026, state-collected city table: https://tax.colorado.gov/DR1002',
     ''),
