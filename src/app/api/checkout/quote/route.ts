@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { quoteInputSchema } from "@/lib/checkout/schema";
 import { getQuote, type QuoteErrorCode, type QuoteResult } from "@/lib/checkout/quote";
+import { createRateLimiter, visitorKey } from "@/lib/rate-limit";
 
 /**
  * POST /api/checkout/quote
@@ -13,37 +14,11 @@ import { getQuote, type QuoteErrorCode, type QuoteResult } from "@/lib/checkout/
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
-// A simple limit on how often one visitor can ask for quotes. Each quote can
-// call the Census and OpenRouteService (which has a daily allowance), and
-// many quotes from one visitor could help someone work out where delivery
-// distance is measured from. The counts live in this server's memory, so
-// they reset on a restart and aren't shared between Vercel's servers: a
-// speed bump, not a wall.
-const WINDOW_MS = 10 * 60 * 1000;
-const MAX_PER_WINDOW = 30;
-const MAX_TRACKED_VISITORS = 5000;
-const recent = new Map<string, number[]>();
-
-function rateLimited(visitor: string, now: number): boolean {
-  const times = (recent.get(visitor) ?? []).filter((t) => now - t < WINDOW_MS);
-  if (times.length >= MAX_PER_WINDOW) {
-    recent.set(visitor, times);
-    return true;
-  }
-  times.push(now);
-  recent.set(visitor, times);
-  if (recent.size > MAX_TRACKED_VISITORS) {
-    for (const [key, list] of recent) {
-      if (list.every((t) => now - t >= WINDOW_MS)) recent.delete(key);
-    }
-  }
-  return false;
-}
-
-function visitorKey(request: NextRequest): string {
-  const forwarded = request.headers.get("x-forwarded-for");
-  return forwarded?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "unknown";
-}
+// A limit on how often one visitor can ask for quotes. Each quote can call
+// the Census and OpenRouteService (which has a daily allowance), and many
+// quotes from one visitor could help someone work out where delivery
+// distance is measured from.
+const rateLimited = createRateLimiter({ windowMs: 10 * 60 * 1000, maxPerWindow: 30 });
 
 // Problems the customer can fix get 422. Services that are down get 503.
 const STATUS_FOR: Partial<Record<QuoteErrorCode, number>> = {

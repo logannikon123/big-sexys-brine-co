@@ -1,14 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle, Loader2, Lock } from "lucide-react";
 import { useCart } from "@/components/cart/CartProvider";
+import { SquareCard, type SquareCardHandle } from "@/components/checkout/SquareCard";
 import { CottageFoodNotice } from "@/components/legal/CottageFoodNotice";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { deliveryDateWindow } from "@/lib/checkout/dates";
+import type { PayResult } from "@/lib/checkout/pay";
 import type { Quote, QuoteResult } from "@/lib/checkout/quote";
+import { customerSchema } from "@/lib/checkout/schema";
 import { cn, formatPrice } from "@/lib/utils";
 
 /** What checkout needs to know about each product. Prices come from the server. */
@@ -73,7 +77,7 @@ export function CheckoutForm({
   rushFeeCents,
   shippingStates,
 }: CheckoutFormProps) {
-  const { items, ready } = useCart();
+  const { items, ready, clear } = useCart();
 
   const methods: Method[] = [
     ...(options.pickup ? (["pickup"] as const) : []),
@@ -93,10 +97,25 @@ export function CheckoutForm({
   const [status, setStatus] = useState<"idle" | "loading">("idle");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [problem, setProblem] = useState<QuoteProblem | null>(null);
+  const [customer, setCustomer] = useState({ name: "", email: "", phone: "", notes: "" });
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [placed, setPlaced] = useState<{ orderNumber: number; totalCents: number; pending: boolean } | null>(null);
+  const cardRef = useRef<SquareCardHandle>(null);
+  // One ID per checkout attempt. Square uses it to charge at most once, so a
+  // retry after a lost connection keeps it; a new try after a decline gets a
+  // new one.
+  const checkoutIdRef = useRef<string | null>(null);
 
   // Any change to the form makes the last price out of date.
   function forgetQuote() {
     setQuote(null);
+    setProblem(null);
+    checkoutIdRef.current = null;
+  }
+
+  function setCustomerField(field: keyof typeof customer, value: string) {
+    setCustomer((current) => ({ ...current, [field]: value }));
     setProblem(null);
   }
 
@@ -110,6 +129,30 @@ export function CheckoutForm({
 
   if (!ready) {
     return <p className="text-brand-cream/60">Loading your cart...</p>;
+  }
+
+  if (placed) {
+    return (
+      <div role="status" className="space-y-4 rounded-xl border border-brand-green/30 bg-brand-green/10 p-8 text-center">
+        <CheckCircle size={48} className="mx-auto text-brand-green" />
+        <h2 className="font-display text-2xl font-semibold text-brand-cream">
+          Thank you! Order #{placed.orderNumber} is in.
+        </h2>
+        <p className="text-brand-cream/80">
+          {placed.pending
+            ? `Square is still confirming your payment of ${formatPrice(placed.totalCents)}. We'll start on your order as soon as it clears.`
+            : `We charged ${formatPrice(placed.totalCents)} to your card.`}{" "}
+          Keep your order number. Questions? Reach us on the{" "}
+          <Link href="/contact" className="underline hover:text-brand-orange">contact page</Link>.
+        </p>
+        <Link
+          href="/products"
+          className="inline-flex min-h-11 items-center justify-center rounded-full bg-brand-orange px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-orange/90"
+        >
+          Back to the Lineup
+        </Link>
+      </div>
+    );
   }
 
   if (lines.length === 0) {
@@ -155,12 +198,8 @@ export function CheckoutForm({
     forgetQuote();
   }
 
-  async function getPrice(event: React.FormEvent) {
-    event.preventDefault();
-    if (!method) return;
-    setStatus("loading");
-    forgetQuote();
-
+  /** The cart and the pickup, delivery or shipping choice, as the routes expect them. */
+  function cartAndFulfillment() {
     const cleanAddress = {
       line1: address.line1,
       ...(address.line2.trim() ? { line2: address.line2 } : {}),
@@ -168,21 +207,95 @@ export function CheckoutForm({
       state: address.state,
       postalCode: address.postalCode,
     };
-    const fulfillment =
-      method === "pickup"
-        ? { type: "pickup" }
-        : method === "local_delivery"
-          ? { type: "local_delivery", address: cleanAddress, deliveryDate }
-          : { type: "shipping", address: cleanAddress };
+    return {
+      items: lines.map((line) => ({ productId: line.productId, qty: line.qty })),
+      fulfillment:
+        method === "pickup"
+          ? { type: "pickup" }
+          : method === "local_delivery"
+            ? { type: "local_delivery", address: cleanAddress, deliveryDate }
+            : { type: "shipping", address: cleanAddress },
+    };
+  }
+
+  async function pay() {
+    if (!quote || paying) return;
+    setProblem(null);
+
+    const checkedCustomer = customerSchema.safeParse({
+      name: customer.name,
+      email: customer.email,
+      ...(customer.phone.trim() ? { phone: customer.phone } : {}),
+      ...(customer.notes.trim() ? { notes: customer.notes } : {}),
+    });
+    if (!checkedCustomer.success) {
+      setProblem({ message: checkedCustomer.error.issues[0]?.message ?? "Check your details." });
+      return;
+    }
+    if (!termsAccepted) {
+      setProblem({ message: "Please agree to the terms to place your order." });
+      return;
+    }
+
+    setPaying(true);
+    try {
+      const card = await cardRef.current?.tokenize();
+      if (!card?.ok) {
+        setProblem({ message: card?.message ?? "The card form isn't ready yet. Please wait a moment." });
+        return;
+      }
+
+      checkoutIdRef.current ??= crypto.randomUUID();
+      const res = await fetch("/api/checkout/pay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...cartAndFulfillment(),
+          checkoutId: checkoutIdRef.current,
+          customer: checkedCustomer.data,
+          termsAccepted: true,
+          expectedTotalCents: quote.totalCents,
+          sourceId: card.token,
+        }),
+      });
+      const result = (await res.json()) as PayResult | { ok: false; message?: string; retrySameCheckout?: boolean };
+
+      if (result.ok) {
+        setPlaced({ orderNumber: result.orderNumber, totalCents: result.totalCents, pending: result.pending });
+        clear();
+        window.scrollTo({ top: 0 });
+        return;
+      }
+      if (!("retrySameCheckout" in result) || !result.retrySameCheckout) {
+        checkoutIdRef.current = null;
+      }
+      if ("quote" in result && result.quote) setQuote(result.quote);
+      setProblem({
+        message: result.message ?? "We couldn't take the payment. Please try again.",
+        itemProblems: "itemProblems" in result ? result.itemProblems : undefined,
+      });
+    } catch {
+      // We don't know whether the order went through, so keep the same
+      // checkout ID: a retry can't charge twice.
+      setProblem({
+        message: "We lost the connection while paying. Try again: you won't be charged twice.",
+      });
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  async function getPrice(event: React.FormEvent) {
+    event.preventDefault();
+    if (!method) return;
+    setStatus("loading");
+    forgetQuote();
 
     try {
       const res = await fetch("/api/checkout/quote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          items: lines.map((line) => ({ productId: line.productId, qty: line.qty })),
-          fulfillment,
-        }),
+        body: JSON.stringify(cartAndFulfillment()),
       });
       const result = (await res.json()) as QuoteResult | { ok: false; message?: string };
       if (result.ok) {
@@ -337,6 +450,62 @@ export function CheckoutForm({
             more jars, or choose another way to get them.
           </p>
         )}
+
+        <fieldset className="space-y-4">
+          <legend className="mb-3 font-display text-xl font-semibold text-brand-cream">
+            Your details
+          </legend>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="customerName" className="text-brand-cream/80">Name</Label>
+              <Input
+                id="customerName"
+                autoComplete="name"
+                value={customer.name}
+                onChange={(e) => setCustomerField("name", e.target.value)}
+                className={inputClass}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customerEmail" className="text-brand-cream/80">Email</Label>
+              <Input
+                id="customerEmail"
+                type="email"
+                autoComplete="email"
+                value={customer.email}
+                onChange={(e) => setCustomerField("email", e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="customerPhone" className="text-brand-cream/80">
+              Phone <span className="text-brand-cream/40">(optional, for questions about your order)</span>
+            </Label>
+            <Input
+              id="customerPhone"
+              type="tel"
+              autoComplete="tel"
+              value={customer.phone}
+              onChange={(e) => setCustomerField("phone", e.target.value)}
+              className={cn(inputClass, "sm:max-w-xs")}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="customerNotes" className="text-brand-cream/80">
+              Notes <span className="text-brand-cream/40">(optional)</span>
+            </Label>
+            <Textarea
+              id="customerNotes"
+              rows={3}
+              maxLength={500}
+              placeholder={method === "local_delivery" ? "Gate code, where to leave the jars..." : ""}
+              value={customer.notes}
+              onChange={(e) => setCustomerField("notes", e.target.value)}
+              className={cn(inputClass, "resize-none")}
+            />
+          </div>
+        </fieldset>
       </div>
 
       <div className="h-fit space-y-4 rounded-xl border border-brand-brown/20 bg-card p-5 sm:p-6">
@@ -405,13 +574,44 @@ export function CheckoutForm({
         )}
 
         {quote && (
-          <button
-            type="button"
-            disabled
-            className="inline-flex min-h-11 w-full cursor-not-allowed items-center justify-center rounded-full bg-brand-orange/40 px-6 py-3 font-semibold text-white/80"
-          >
-            Card payment coming soon
-          </button>
+          <div className="space-y-4 border-t border-brand-brown/30 pt-4">
+            <h3 className="flex items-center gap-2 font-semibold text-brand-cream">
+              <Lock size={16} className="text-brand-cream/60" /> Pay by card
+            </h3>
+            <SquareCard ref={cardRef} />
+            <label className="flex cursor-pointer items-start gap-3 text-sm text-brand-cream/80">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => {
+                  setTermsAccepted(e.target.checked);
+                  setProblem(null);
+                }}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-brand-orange"
+              />
+              <span>
+                I agree to the{" "}
+                <Link href="/terms" target="_blank" className="underline hover:text-brand-orange">terms</Link>{" "}
+                and{" "}
+                <Link href="/refunds" target="_blank" className="underline hover:text-brand-orange">refund policy</Link>.
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={pay}
+              disabled={paying}
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-brand-orange px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-orange/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {paying ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  Paying...
+                </>
+              ) : (
+                `Pay ${formatPrice(quote.totalCents)}`
+              )}
+            </button>
+          </div>
         )}
 
         <p className="text-sm text-brand-cream/60">

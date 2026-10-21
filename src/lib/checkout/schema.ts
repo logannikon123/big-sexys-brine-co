@@ -93,3 +93,47 @@ export const quoteInputSchema = z.object({
 });
 
 export type QuoteInput = z.infer<typeof quoteInputSchema>;
+
+export const customerSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Enter your name.")
+    .max(100, "The name is too long."),
+  email: z
+    .string()
+    .trim()
+    .max(200, "The email address is too long.")
+    .pipe(z.email("Enter a valid email address.")),
+  phone: z
+    .string()
+    .trim()
+    .max(30, "The phone number is too long.")
+    .optional(),
+  notes: z
+    .string()
+    .trim()
+    .max(500, "Keep notes under 500 characters.")
+    .optional(),
+});
+
+export type CheckoutCustomer = z.infer<typeof customerSchema>;
+
+/**
+ * What the checkout page sends to the pay route: the same cart and
+ * fulfillment as a quote, plus the customer, the total they saw, and a
+ * one-time card code from Square's card form. The card number itself never
+ * reaches our server.
+ */
+export const payInputSchema = quoteInputSchema.extend({
+  /** One per checkout attempt, so a repeated click can't charge twice. */
+  checkoutId: z.uuid(),
+  customer: customerSchema,
+  termsAccepted: z.literal(true, "Please agree to the terms to place your order."),
+  /** The total shown to the customer. If the price has changed since, nothing is charged. */
+  expectedTotalCents: z.number().int().min(0),
+  /** Square's one-time code for the card. */
+  sourceId: z.string().min(1).max(500),
+});
+
+export type PayInput = z.infer<typeof payInputSchema>;
