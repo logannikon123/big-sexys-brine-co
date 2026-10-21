@@ -229,6 +229,9 @@ requests like any other: checks must pass, and Jesse approves the merge.
   is no sandbox webhook.
 - `RESEND_API_KEY` is set in Vercel for Production only, so preview copies send no email. Local
   copies use the key in `.env.local`.
+- `CRON_SECRET` (Production only) lets Vercel run the daily tax rate reminder
+  (`/api/cron/tax-rate-reminder`, scheduled in `vercel.json`). Without it the reminder refuses to
+  run. The reminder dates live in `src/lib/tax-reminders.ts`.
 
 ## Commands
 
