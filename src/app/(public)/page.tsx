@@ -1,11 +1,16 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import { Container } from "@/components/layout/Container";
 import { ProductCard } from "@/components/products/ProductCard";
 import { getFeaturedProducts, getUpcomingEvents, getTestimonials } from "@/lib/data";
 import { Calendar, MapPin, ArrowRight, Quote, Instagram } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { RichTextContent } from "@/components/ui/rich-text-content";
+import { HomeBannerView } from "@/components/home/HomeBannerView";
+import { BannerErrorBoundary } from "@/components/home/BannerErrorBoundary";
+import { getHomeBanner } from "@/lib/home-banner-server";
+import { isBannerShowing, pickNextEvent, resolveBanner } from "@/lib/home-banner";
 
 export const revalidate = 60;
 
@@ -14,8 +19,35 @@ export default async function HomePage() {
   const upcomingEvents = (await getUpcomingEvents()).slice(0, 3);
   const testimonials = await getTestimonials();
 
+  // The admin-controlled banner. Whether it shows, and which event is next,
+  // is worked out each time the page is rebuilt (about once a minute), so
+  // start and stop times and the "Next event" card move on by themselves.
+  const savedBanner = await getHomeBanner();
+  const now = new Date();
+  const banner =
+    savedBanner && isBannerShowing(savedBanner.settings, savedBanner.slides.length, now)
+      ? resolveBanner(savedBanner, {
+          now,
+          nextEvent: pickNextEvent(await getUpcomingEvents(), now),
+        })
+      : null;
+
   return (
     <>
+      {/* Home page banner (Admin, Home banner). Shows nothing while it's off.
+          If it breaks, the two wrappers hide it and the page carries on. */}
+      {banner && (
+        <BannerErrorBoundary>
+          <Suspense fallback={null}>
+            <div className="overflow-x-clip bg-brand-black pt-24 pb-12">
+              <Container>
+                <HomeBannerView banner={banner} />
+              </Container>
+            </div>
+          </Suspense>
+        </BannerErrorBoundary>
+      )}
+
       {/* Hero Section */}
       <section className="relative min-h-screen flex items-center justify-center overflow-hidden texture-grain">
         <div className="absolute inset-0 bg-gradient-to-b from-brand-black via-brand-black/95 to-brand-black" />

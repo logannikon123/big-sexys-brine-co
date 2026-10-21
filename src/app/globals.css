@@ -139,3 +139,58 @@ body.admin-toolbar-active header {
     background-image: linear-gradient(135deg, #E8671C, #D4A017);
   }
 }
+
+/*
+ * Home page banner glow (src/components/home/HomeBannerView.tsx).
+ * A soft colored layer sits just behind the banner and slowly fades in and
+ * out. Only its opacity changes, which is cheap for the browser to animate.
+ * The banner sets --glow-size, --glow-alpha and --glow-speed from the admin
+ * sliders, and data-glow picks the color.
+ */
+.banner-glow {
+  position: relative;
+  isolation: isolate;
+  --glow-color: #E8671C;
+}
+.banner-glow[data-glow="gold"] {
+  --glow-color: #D4A017;
+}
+.banner-glow::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow: 0 0 var(--glow-size) calc(var(--glow-size) / 3)
+    color-mix(in srgb, var(--glow-color) var(--glow-alpha), transparent);
+  opacity: 0.35;
+  animation: banner-glow var(--glow-speed) ease-in-out infinite;
+}
+/* Orange and gold: a blurred stripe of both colors instead of one shadow. */
+.banner-glow[data-glow="orange_gold"]::before {
+  box-shadow: none;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, #E8671C var(--glow-alpha), transparent),
+    color-mix(in srgb, #D4A017 var(--glow-alpha), transparent),
+    color-mix(in srgb, #E8671C var(--glow-alpha), transparent)
+  );
+  filter: blur(var(--glow-size));
+}
+@keyframes banner-glow {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+/* People who ask their device for less motion get a steady glow. */
+@media (prefers-reduced-motion: reduce) {
+  .banner-glow::before {
+    animation: none;
+    opacity: 0.6;
+  }
+}

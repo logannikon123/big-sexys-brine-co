@@ -70,6 +70,7 @@ export async function clearAllCache() {
   revalidateTag("testimonials", { expire: 0 });
   revalidateTag("class-info", { expire: 0 });
   revalidateTag("gallery", { expire: 0 });
+  revalidateTag("home-banner", { expire: 0 });
   // Full route tree — nukes route cache for public + admin
   revalidatePath("/", "layout");
   revalidatePath("/admin", "layout");

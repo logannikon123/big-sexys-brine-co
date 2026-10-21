@@ -814,3 +814,102 @@ CREATE POLICY "Admin read marketing_consent_events" ON public.marketing_consent_
 CREATE POLICY "Admin unsubscribe marketing_consent_events" ON public.marketing_consent_events
   FOR INSERT TO authenticated
   WITH CHECK ((select public.is_admin()) AND action = 'opt_out' AND source = 'admin');
+
+-- Home page banner: one settings row and up to 10 photos (see
+-- supabase/migrations/20261021212021_home_banner.sql). Admins edit both at
+-- /admin/banner. The row starts switched off. A deleted product or event
+-- clears any banner link to it.
+CREATE TABLE IF NOT EXISTS public.home_banner (
+  id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  starts_at TIMESTAMPTZ,
+  ends_at TIMESTAMPTZ,
+  CHECK (starts_at IS NULL OR ends_at IS NULL OR ends_at > starts_at),
+  headline TEXT NOT NULL DEFAULT '' CHECK (char_length(headline) <= 80),
+  message TEXT NOT NULL DEFAULT '' CHECK (char_length(message) <= 300),
+  link_type TEXT NOT NULL DEFAULT 'none'
+    CHECK (link_type IN ('none', 'product', 'event', 'url')),
+  link_product_id INTEGER REFERENCES public.products(id) ON DELETE SET NULL,
+  link_event_id INTEGER REFERENCES public.events(id) ON DELETE SET NULL,
+  link_url TEXT NOT NULL DEFAULT ''
+    CHECK (char_length(link_url) <= 500 AND (link_url = '' OR link_url ~ '^(/[^/]|https://)')),
+  link_label TEXT NOT NULL DEFAULT 'Check it out' CHECK (char_length(link_label) <= 30),
+  event_section_enabled BOOLEAN NOT NULL DEFAULT true,
+  event_section_mode TEXT NOT NULL DEFAULT 'auto'
+    CHECK (event_section_mode IN ('auto', 'pick')),
+  event_section_event_id INTEGER REFERENCES public.events(id) ON DELETE SET NULL,
+  event_section_heading TEXT NOT NULL DEFAULT 'Catch us next'
+    CHECK (char_length(event_section_heading) <= 40),
+  theme TEXT NOT NULL DEFAULT 'night'
+    CHECK (theme IN ('night', 'ember', 'cream', 'pickle', 'barrel')),
+  layout TEXT NOT NULL DEFAULT 'slides_left'
+    CHECK (layout IN ('slides_left', 'slides_right', 'message_over')),
+  text_align TEXT NOT NULL DEFAULT 'left' CHECK (text_align IN ('left', 'center')),
+  headline_font TEXT NOT NULL DEFAULT 'display' CHECK (headline_font IN ('display', 'body')),
+  glow_enabled BOOLEAN NOT NULL DEFAULT true,
+  glow_color TEXT NOT NULL DEFAULT 'orange_gold'
+    CHECK (glow_color IN ('orange', 'gold', 'orange_gold')),
+  glow_strength INTEGER NOT NULL DEFAULT 50 CHECK (glow_strength BETWEEN 0 AND 100),
+  glow_speed_seconds INTEGER NOT NULL DEFAULT 6 CHECK (glow_speed_seconds BETWEEN 2 AND 15),
+  autoplay BOOLEAN NOT NULL DEFAULT true,
+  slide_seconds INTEGER NOT NULL DEFAULT 6 CHECK (slide_seconds BETWEEN 3 AND 15),
+  height_px INTEGER NOT NULL DEFAULT 360 CHECK (height_px BETWEEN 200 AND 560),
+  photo_darkness INTEGER NOT NULL DEFAULT 50 CHECK (photo_darkness BETWEEN 0 AND 80),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.home_banner_slides (
+  id SERIAL PRIMARY KEY,
+  url TEXT NOT NULL CHECK (url ~ '^https://'),
+  alt TEXT NOT NULL DEFAULT '' CHECK (char_length(alt) <= 200),
+  caption TEXT NOT NULL DEFAULT '' CHECK (char_length(caption) <= 80),
+  link_product_id INTEGER REFERENCES public.products(id) ON DELETE SET NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_home_banner_slides_sort_order
+  ON public.home_banner_slides(sort_order);
+
+CREATE TRIGGER home_banner_updated_at
+  BEFORE UPDATE ON public.home_banner
+  FOR EACH ROW
+  EXECUTE FUNCTION public.update_updated_at();
+
+-- Ten photos at most. The admin page checks this too; this is the backstop.
+CREATE OR REPLACE FUNCTION public.home_banner_slides_limit()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = ''
+AS $$
+BEGIN
+  IF (SELECT count(*) FROM public.home_banner_slides) >= 10 THEN
+    RAISE EXCEPTION 'The banner holds 10 photos at most.';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER home_banner_slides_limit
+  BEFORE INSERT ON public.home_banner_slides
+  FOR EACH ROW
+  EXECUTE FUNCTION public.home_banner_slides_limit();
+
+ALTER TABLE public.home_banner ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.home_banner_slides ENABLE ROW LEVEL SECURITY;
+
+-- Anyone may read; signed-out visitors may not write.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.home_banner FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.home_banner_slides FROM anon;
+
+CREATE POLICY "Public read home_banner" ON public.home_banner FOR SELECT USING (true);
+-- One row, made below. Admins may change it but not add or delete rows.
+CREATE POLICY "Admin update home_banner" ON public.home_banner FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+
+CREATE POLICY "Public read home_banner_slides" ON public.home_banner_slides FOR SELECT USING (true);
+CREATE POLICY "Admin insert home_banner_slides" ON public.home_banner_slides FOR INSERT TO authenticated WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin update home_banner_slides" ON public.home_banner_slides FOR UPDATE TO authenticated USING ((select public.is_admin())) WITH CHECK ((select public.is_admin()));
+CREATE POLICY "Admin delete home_banner_slides" ON public.home_banner_slides FOR DELETE TO authenticated USING ((select public.is_admin()));
+
+-- The single banner row, switched off, with every default
+INSERT INTO public.home_banner (id) VALUES (1) ON CONFLICT (id) DO NOTHING;

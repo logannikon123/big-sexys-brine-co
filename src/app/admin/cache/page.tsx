@@ -25,7 +25,7 @@ export default async function CachePage() {
           <CardTitle>Clear All Cache</CardTitle>
           <CardDescription>
             Flushes Next.js route and data caches for every page (products,
-            events, testimonials, class info, gallery). The next visit to the
+            events, testimonials, class info, gallery, home banner). The next visit to the
             public site will rebuild from the database. Saves and uploads
             already invalidate their own cache automatically — use this only
             when something looks stale.
