@@ -24,15 +24,18 @@ import {
   updateFoodTaxRate,
 } from "@/app/admin/tax/actions";
 import {
+  FOOD_TAX_COLLECTORS,
   FOOD_TAX_KINDS,
+  collectorLabel,
   kindLabel,
   splitSource,
+  type FoodTaxCollector,
   type FoodTaxKind,
   type FoodTaxRate,
 } from "@/lib/food-tax-rates";
 import { bpsToPercent, percentToBps } from "@/lib/store-settings";
 
-const COLUMN_COUNT = 9;
+const COLUMN_COUNT = 10;
 
 function ratePercent(row: Pick<FoodTaxRate, "taxes_food" | "food_rate_bps">): string {
   return row.taxes_food ? `${bpsToPercent(row.food_rate_bps)}%` : "Exempt";
@@ -70,6 +73,9 @@ function RateForm({ row, onDone }: RateFormProps) {
     row ? bpsToPercent(row.food_rate_bps) : "0"
   );
   const [confirmed, setConfirmed] = useState(row?.confirmed ?? false);
+  const [collectedBy, setCollectedBy] = useState<FoodTaxCollector | "">(
+    row ? (row.collected_by ?? "") : "state"
+  );
   const [clearedConfirm, setClearedConfirm] = useState(false);
   const [source, setSource] = useState(row?.source ?? "");
   const [notes, setNotes] = useState(row?.notes ?? "");
@@ -100,6 +106,7 @@ function RateForm({ row, onDone }: RateFormProps) {
       taxes_food: taxesFood,
       food_rate_bps: rateBps,
       confirmed,
+      collected_by: collectedBy || null,
       source,
       notes,
     };
@@ -214,6 +221,24 @@ function RateForm({ row, onDone }: RateFormProps) {
           <p className="text-xs text-muted-foreground">
             Only this place&apos;s part. Checkout adds the city and county
             together.
+          </p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor={`${idPrefix}-collected-by`}>Collected by</Label>
+          <Select
+            id={`${idPrefix}-collected-by`}
+            value={collectedBy}
+            onChange={(e) => setCollectedBy(e.target.value as FoodTaxCollector | "")}
+          >
+            {FOOD_TAX_COLLECTORS.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+            <option value="">None (no sales tax)</option>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            Who you file this tax with.
           </p>
         </div>
         <div className="space-y-2">
@@ -345,6 +370,7 @@ export function FoodTaxRatesTable({ rows }: { rows: FoodTaxRate[] }) {
             <TableHead>Taxes food</TableHead>
             <TableHead className="text-right">Food rate</TableHead>
             <TableHead>Confirmed</TableHead>
+            <TableHead>Collected by</TableHead>
             <TableHead>Source</TableHead>
             <TableHead>Notes</TableHead>
             <TableHead>
@@ -386,6 +412,9 @@ export function FoodTaxRatesTable({ rows }: { rows: FoodTaxRate[] }) {
                     disabled={confirmingId === row.id}
                     onChange={(e) => toggleConfirmed(row, e.target.checked)}
                   />
+                </TableCell>
+                <TableCell className="whitespace-nowrap text-xs">
+                  {collectorLabel(row.collected_by)}
                 </TableCell>
                 <TableCell className="max-w-48 whitespace-normal text-xs">
                   <SourceLink source={row.source} />

@@ -11,6 +11,9 @@ import { MAX_TAX_RATE_BPS } from "@/lib/store-settings";
  */
 export type FoodTaxKind = "county" | "city" | "district";
 
+/** Who collects the tax: the state, the city itself, or nobody (no tax). */
+export type FoodTaxCollector = "state" | "self";
+
 export interface FoodTaxRate {
   id: number;
   kind: FoodTaxKind;
@@ -21,6 +24,8 @@ export interface FoodTaxRate {
   food_rate_bps: number;
   /** Checkout charges tax only from confirmed rows. */
   confirmed: boolean;
+  /** Null for a place with no sales tax. Checkout doesn't use it. */
+  collected_by: FoodTaxCollector | null;
   source: string;
   notes: string;
   updated_at: string;
@@ -34,6 +39,15 @@ export const FOOD_TAX_KINDS = [
 
 export function kindLabel(kind: FoodTaxKind): string {
   return FOOD_TAX_KINDS.find((k) => k.value === kind)?.label ?? kind;
+}
+
+export const FOOD_TAX_COLLECTORS = [
+  { value: "state", label: "State" },
+  { value: "self", label: "City (self-collected)" },
+] as const;
+
+export function collectorLabel(collector: FoodTaxCollector | null): string {
+  return FOOD_TAX_COLLECTORS.find((c) => c.value === collector)?.label ?? "None";
 }
 
 /** What an admin can set on a row. */
@@ -55,6 +69,7 @@ export const foodTaxRateSchema = z
       .min(0, "The food tax rate can't be less than 0%.")
       .max(MAX_TAX_RATE_BPS, "A food tax rate over 20% looks like a typo."),
     confirmed: z.boolean(),
+    collected_by: z.enum(["state", "self"]).nullable(),
     source: z.string().trim().max(500, "The source is too long."),
     notes: z.string().trim().max(2000, "The notes are too long."),
   })

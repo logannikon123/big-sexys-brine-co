@@ -300,6 +300,10 @@ CREATE TABLE IF NOT EXISTS square_webhook_events (
 -- census_geoid is the Census code: 5 digits for a county, 7 for a city, NULL
 -- for a district. Rate in hundredths of a percent, 0 when food is exempt.
 -- Checkout charges tax only from rows an admin has marked confirmed.
+-- collected_by says who collects the tax: 'state' (Colorado Department of
+-- Revenue), 'self' (a home-rule city, or Denver or Broomfield) or NULL for a
+-- place with no sales tax. Rows for all 64 counties and most cities arrive in
+-- supabase/migrations/20261021193135_statewide_food_tax_rates.sql.
 CREATE TABLE IF NOT EXISTS food_tax_rates (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   kind TEXT NOT NULL CHECK (kind IN ('county', 'city', 'district')),
@@ -311,6 +315,8 @@ CREATE TABLE IF NOT EXISTS food_tax_rates (
   source TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  collected_by TEXT CONSTRAINT food_tax_rates_collected_by_check
+    CHECK (collected_by IN ('state', 'self')),
   CONSTRAINT food_tax_rates_kind_name_key UNIQUE (kind, name),
   CONSTRAINT food_tax_rates_geoid_shape CHECK (
     census_geoid IS NULL
