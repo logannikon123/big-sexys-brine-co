@@ -100,7 +100,7 @@ export function CheckoutForm({
   const [customer, setCustomer] = useState({ name: "", email: "", phone: "", notes: "" });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [paying, setPaying] = useState(false);
-  const [placed, setPlaced] = useState<{ orderNumber: number; totalCents: number; pending: boolean } | null>(null);
+  const [placed, setPlaced] = useState<{ orderNumber: number; publicToken: string; totalCents: number; pending: boolean } | null>(null);
   const cardRef = useRef<SquareCardHandle>(null);
   // One ID per checkout attempt. Square uses it to charge at most once, so a
   // retry after a lost connection keeps it; a new try after a decline gets a
@@ -141,16 +141,24 @@ export function CheckoutForm({
         <p className="text-brand-cream/80">
           {placed.pending
             ? `Square is still confirming your payment of ${formatPrice(placed.totalCents)}. We'll start on your order as soon as it clears.`
-            : `We charged ${formatPrice(placed.totalCents)} to your card.`}{" "}
-          Keep your order number. Questions? Reach us on the{" "}
+            : `We charged ${formatPrice(placed.totalCents)} to your card and emailed you a receipt.`}{" "}
+          Questions? Reach us on the{" "}
           <Link href="/contact" className="underline hover:text-brand-orange">contact page</Link>.
         </p>
-        <Link
-          href="/products"
-          className="inline-flex min-h-11 items-center justify-center rounded-full bg-brand-orange px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-orange/90"
-        >
-          Back to the Lineup
-        </Link>
+        <div className="flex flex-wrap justify-center gap-3">
+          <Link
+            href={`/order/${placed.publicToken}`}
+            className="inline-flex min-h-11 items-center justify-center rounded-full bg-brand-orange px-6 py-3 font-semibold text-white transition-colors hover:bg-brand-orange/90"
+          >
+            See your order
+          </Link>
+          <Link
+            href="/products"
+            className="inline-flex min-h-11 items-center justify-center rounded-full border border-brand-brown/40 px-6 py-3 font-semibold text-brand-cream transition-colors hover:border-brand-orange"
+          >
+            Back to the Lineup
+          </Link>
+        </div>
       </div>
     );
   }
@@ -261,7 +269,7 @@ export function CheckoutForm({
       const result = (await res.json()) as PayResult | { ok: false; message?: string; retrySameCheckout?: boolean };
 
       if (result.ok) {
-        setPlaced({ orderNumber: result.orderNumber, totalCents: result.totalCents, pending: result.pending });
+        setPlaced({ orderNumber: result.orderNumber, publicToken: result.publicToken, totalCents: result.totalCents, pending: result.pending });
         clear();
         window.scrollTo({ top: 0 });
         return;
