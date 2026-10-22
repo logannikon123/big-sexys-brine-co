@@ -388,6 +388,21 @@ interface Fees {
 const NO_FEES: Fees = { deliveryFeeCents: 0, rushFeeCents: 0, packingFeeCents: 0, postageCents: 0 };
 
 /**
+ * The kill switch. NEXT_PUBLIC_ORDERING_PREVIEW=true lets a developer try
+ * checkout on their own computer while the store is closed. It is never set
+ * in Vercel.
+ */
+function takesOrders(settings: StoreSettings): boolean {
+  return settings.orders_open || process.env.NEXT_PUBLIC_ORDERING_PREVIEW === "true";
+}
+
+/** True when the store takes orders, or null if the settings can't be read. */
+export async function storeIsOpen(): Promise<boolean | null> {
+  const settings = await loadSettings();
+  return settings ? takesOrders(settings) : null;
+}
+
+/**
  * Work out a quote. Server only.
  *
  * @param input a cart and fulfillment choice, already checked with quoteInputSchema
@@ -398,10 +413,7 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
   const [settings, products] = await Promise.all([loadSettings(), loadProducts(ids)]);
   if (!settings || !products) return UNAVAILABLE;
 
-  // The kill switch. NEXT_PUBLIC_ORDERING_PREVIEW=true lets a developer try
-  // checkout on their own computer while the store is closed. It is never
-  // set in Vercel.
-  if (!settings.orders_open && process.env.NEXT_PUBLIC_ORDERING_PREVIEW !== "true") {
+  if (!takesOrders(settings)) {
     return fail("store_closed", "Online ordering is closed right now. Please check back soon.");
   }
 

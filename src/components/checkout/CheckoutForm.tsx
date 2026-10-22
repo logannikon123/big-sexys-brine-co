@@ -105,16 +105,25 @@ export function CheckoutForm({
   const [paying, setPaying] = useState(false);
   const [placed, setPlaced] = useState<{ orderNumber: number; publicToken: string; totalCents: number; pending: boolean } | null>(null);
   const cardRef = useRef<SquareCardHandle>(null);
-  // One ID per checkout attempt. Square uses it to charge at most once, so a
-  // retry after a lost connection keeps it; a new try after a decline gets a
-  // new one.
-  const checkoutIdRef = useRef<string | null>(null);
+  // One checkout per try at paying: an ID and the card code. Square uses the
+  // ID to charge at most once, but only if a retry sends the same request,
+  // so until we know how a try ended, a retry sends the same ID and the same
+  // card code. Only an answer that says the try is over (paid, declined, or
+  // nothing charged) starts a new checkout.
+  const checkoutRef = useRef<{ id: string; token: string } | null>(null);
+  // True while a checkout is open. The order can't change until it ends,
+  // because the server keeps the order it saved for that checkout.
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+
+  function endCheckout() {
+    checkoutRef.current = null;
+    setCheckoutOpen(false);
+  }
 
   // Any change to the form makes the last price out of date.
   function forgetQuote() {
     setQuote(null);
     setProblem(null);
-    checkoutIdRef.current = null;
   }
 
   function setCustomerField(field: keyof typeof customer, value: string) {
@@ -250,24 +259,29 @@ export function CheckoutForm({
 
     setPaying(true);
     try {
-      const card = await cardRef.current?.tokenize();
-      if (!card?.ok) {
-        setProblem({ message: card?.message ?? "The card form isn't ready yet. Please wait a moment." });
-        return;
+      let checkout = checkoutRef.current;
+      if (!checkout) {
+        const card = await cardRef.current?.tokenize();
+        if (!card?.ok) {
+          setProblem({ message: card?.message ?? "The card form isn't ready yet. Please wait a moment." });
+          return;
+        }
+        checkout = { id: crypto.randomUUID(), token: card.token };
+        checkoutRef.current = checkout;
+        setCheckoutOpen(true);
       }
 
-      checkoutIdRef.current ??= crypto.randomUUID();
       const res = await fetch("/api/checkout/pay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...cartAndFulfillment(),
-          checkoutId: checkoutIdRef.current,
+          checkoutId: checkout.id,
           customer: checkedCustomer.data,
           termsAccepted: true,
           marketingOptIn,
           expectedTotalCents: quote.totalCents,
-          sourceId: card.token,
+          sourceId: checkout.token,
         }),
       });
       const result = (await res.json()) as PayResult | { ok: false; message?: string; retrySameCheckout?: boolean };
@@ -278,8 +292,9 @@ export function CheckoutForm({
         window.scrollTo({ top: 0 });
         return;
       }
-      if (!("retrySameCheckout" in result) || !result.retrySameCheckout) {
-        checkoutIdRef.current = null;
+      // Any other answer (a busy server, a rate limit) keeps the checkout.
+      if ("retrySameCheckout" in result && result.retrySameCheckout === false) {
+        endCheckout();
       }
       if ("quote" in result && result.quote) setQuote(result.quote);
       setProblem({
@@ -288,7 +303,7 @@ export function CheckoutForm({
       });
     } catch {
       // We don't know whether the order went through, so keep the same
-      // checkout ID: a retry can't charge twice.
+      // checkout: a retry sends the same request and can't charge twice.
       setProblem({
         message: "We lost the connection while paying. Try again: you won't be charged twice.",
       });
@@ -328,7 +343,7 @@ export function CheckoutForm({
   return (
     <form onSubmit={getPrice} className="grid grid-cols-1 gap-8 lg:grid-cols-3">
       <div className="space-y-8 lg:col-span-2">
-        <fieldset className="space-y-3">
+        <fieldset disabled={checkoutOpen} className="space-y-3 disabled:opacity-60">
           <legend className="mb-3 font-display text-xl font-semibold text-brand-cream">
             How do you want your jars?
           </legend>
@@ -357,7 +372,7 @@ export function CheckoutForm({
         </fieldset>
 
         {needsAddress && (
-          <fieldset className="space-y-4">
+          <fieldset disabled={checkoutOpen} className="space-y-4 disabled:opacity-60">
             <legend className="mb-3 font-display text-xl font-semibold text-brand-cream">
               {method === "local_delivery" ? "Delivery address" : "Shipping address"}
             </legend>
@@ -430,7 +445,7 @@ export function CheckoutForm({
         )}
 
         {method === "local_delivery" && (
-          <fieldset className="space-y-2">
+          <fieldset disabled={checkoutOpen} className="space-y-2 disabled:opacity-60">
             <legend className="mb-3 font-display text-xl font-semibold text-brand-cream">
               Delivery date
             </legend>
