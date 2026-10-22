@@ -38,6 +38,8 @@ const ORDER_COLUMNS = [
   "tax_rate_bps",
   "tax_jurisdiction",
   "refunded_cents",
+  "refund_status",
+  "dispute_status",
   "square_receipt_url",
   "card_brand",
   "card_last4",

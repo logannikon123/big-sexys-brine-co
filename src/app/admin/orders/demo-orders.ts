@@ -54,6 +54,7 @@ const blank: Omit<
   tax_rate_bps: null,
   tax_jurisdiction: null,
   refunded_cents: 0,
+  refund_status: "none",
   currency: "USD",
   square_order_id: null,
   square_payment_id: null,
@@ -62,6 +63,10 @@ const blank: Omit<
   card_last4: "1111",
   payment_error_code: null,
   square_environment: "sandbox",
+  dispute_status: null,
+  square_dispute_id: null,
+  disputed_at: null,
+  dispute_closed_at: null,
   tracking_number: null,
   tracking_carrier: null,
   terms_accepted_at: null,
@@ -191,7 +196,8 @@ export const DEMO_ORDERS: DemoOrder[] = [
       item(3, "demo-1003", "Pickled Red Onions", "8oz", 1200, 1),
     ],
   },
-  // Shipping, shipped with a tracking number.
+  // Shipping, shipped with a tracking number. The packing fee was waived
+  // with a part refund in Square, and the order still has its next step.
   {
     order: {
       ...blank,
@@ -206,7 +212,7 @@ export const DEMO_ORDERS: DemoOrder[] = [
       city: "Grand Junction",
       state: "CO",
       postal_code: "81501",
-      admin_notes: "Packed with extra bubble wrap.",
+      admin_notes: "Packed with extra bubble wrap. Waived the packing fee.",
       subtotal_cents: 2700,
       packing_fee_cents: 300,
       shipping_postage_cents: 1250,
@@ -214,6 +220,8 @@ export const DEMO_ORDERS: DemoOrder[] = [
       tax_jurisdiction: "Colorado",
       tax_cents: 78,
       total_cents: 4328,
+      refunded_cents: 300,
+      refund_status: "partial",
       square_environment: "production",
       card_brand: "MASTERCARD",
       card_last4: "4444",
@@ -255,6 +263,7 @@ export const DEMO_ORDERS: DemoOrder[] = [
       tax_cents: 113,
       total_cents: 2113,
       refunded_cents: 2113,
+      refund_status: "full",
       created_at: "2026-10-15T17:30:00Z",
       paid_at: "2026-10-15T17:30:25Z",
       cancelled_at: "2026-10-15T20:00:00Z",

@@ -10,6 +10,8 @@ import { geocodeAddress, type GeocodeFailureReason, type GeocodeMatch } from "@/
 import { drivingDistance, type DistanceMethod } from "@/lib/checkout/distance";
 import { estimatePostage, type PostageMethod } from "@/lib/checkout/postage";
 import { lookupFoodTax } from "@/lib/food-tax";
+import type { FoodTaxCollector, FoodTaxKind } from "@/lib/food-tax-rates";
+import { splitTaxCents } from "@/lib/tax-split";
 
 /**
  * The checkout price calculator. Given a cart and a way to get the jars
@@ -107,6 +109,25 @@ export interface QuoteTax {
   jurisdiction: string | null;
 }
 
+/**
+ * One place's share of the tax (a city or a county), saved with the order
+ * for the tax report. The shares add up exactly to taxCents (see
+ * src/lib/tax-split.ts). Server only: the quote and pay routes take these
+ * out before they answer the browser.
+ */
+export interface QuoteTaxPart {
+  foodTaxRateId: number;
+  kind: FoodTaxKind;
+  name: string;
+  censusGeoid: string | null;
+  collectedBy: FoodTaxCollector | null;
+  /** This place's food rate, in hundredths of a percent. 0 if it doesn't tax food. */
+  rateBps: number;
+  /** What the rate was charged on: the jar subtotal. */
+  taxableCents: number;
+  taxCents: number;
+}
+
 export interface Quote {
   ok: true;
   fulfillment: PickupDetails | DeliveryDetails | ShippingDetails;
@@ -121,6 +142,8 @@ export interface Quote {
   taxCents: number;
   totalCents: number;
   tax: QuoteTax;
+  /** Each place's share of the tax. Empty when no rate was on file. Never sent to the browser. */
+  taxParts: QuoteTaxPart[];
   /** Plain-English notes for the customer, like "we estimated the distance". */
   warnings: string[];
   /** ISO time the quote was made. */
@@ -160,6 +183,15 @@ export interface QuoteError {
 }
 
 export type QuoteResult = Quote | QuoteError;
+
+/** A quote as the browser sees it: the same, without the tax split. */
+export type BrowserQuote = Omit<Quote, "taxParts">;
+
+export function quoteForBrowser(quote: Quote): BrowserQuote {
+  const copy: Partial<Quote> = { ...quote };
+  delete copy.taxParts;
+  return copy as BrowserQuote;
+}
 
 function fail(code: QuoteErrorCode, message: string, itemProblems?: ItemProblem[]): QuoteError {
   return itemProblems ? { ok: false, code, message, itemProblems } : { ok: false, code, message };
@@ -320,10 +352,11 @@ function geoFields(match: GeocodeMatch): GeoFields {
 async function quoteTax(
   query: FoodTaxQuery | null,
   subtotalCents: number
-): Promise<{ taxCents: number; tax: QuoteTax }> {
+): Promise<{ taxCents: number; tax: QuoteTax; taxParts: QuoteTaxPart[] }> {
   const noRate = (jurisdiction: string | null = null) => ({
     taxCents: 0,
     tax: { status: "no_rate" as const, rateBps: null, jurisdiction },
+    taxParts: [],
   });
 
   // Without a county there is no rate to look up.
@@ -353,9 +386,25 @@ async function quoteTax(
     return noRate(lookup.jurisdiction);
   }
 
+  const taxCents = Math.round((subtotalCents * rate) / 10_000);
+  // Each place's share, from the same rates the total came from.
+  const places = lookup.parts.map((p) => ({ ...p, rateBps: p.taxesFood ? p.rateBps : 0 }));
+  const shares = splitTaxCents(subtotalCents, places, taxCents);
+  const taxParts: QuoteTaxPart[] = places.map((p, i) => ({
+    foodTaxRateId: p.id,
+    kind: p.kind,
+    name: p.name,
+    censusGeoid: p.censusGeoid,
+    collectedBy: p.collectedBy,
+    rateBps: p.rateBps,
+    taxableCents: subtotalCents,
+    taxCents: shares[i],
+  }));
+
   return {
-    taxCents: Math.round((subtotalCents * rate) / 10_000),
+    taxCents,
     tax: { status: "ok", rateBps: rate, jurisdiction: lookup.jurisdiction },
+    taxParts,
   };
 }
 
@@ -388,6 +437,21 @@ interface Fees {
 const NO_FEES: Fees = { deliveryFeeCents: 0, rushFeeCents: 0, packingFeeCents: 0, postageCents: 0 };
 
 /**
+ * The kill switch. NEXT_PUBLIC_ORDERING_PREVIEW=true lets a developer try
+ * checkout on their own computer while the store is closed. It is never set
+ * in Vercel.
+ */
+function takesOrders(settings: StoreSettings): boolean {
+  return settings.orders_open || process.env.NEXT_PUBLIC_ORDERING_PREVIEW === "true";
+}
+
+/** True when the store takes orders, or null if the settings can't be read. */
+export async function storeIsOpen(): Promise<boolean | null> {
+  const settings = await loadSettings();
+  return settings ? takesOrders(settings) : null;
+}
+
+/**
  * Work out a quote. Server only.
  *
  * @param input a cart and fulfillment choice, already checked with quoteInputSchema
@@ -398,10 +462,7 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
   const [settings, products] = await Promise.all([loadSettings(), loadProducts(ids)]);
   if (!settings || !products) return UNAVAILABLE;
 
-  // The kill switch. NEXT_PUBLIC_ORDERING_PREVIEW=true lets a developer try
-  // checkout on their own computer while the store is closed. It is never
-  // set in Vercel.
-  if (!settings.orders_open && process.env.NEXT_PUBLIC_ORDERING_PREVIEW !== "true") {
+  if (!takesOrders(settings)) {
     return fail("store_closed", "Online ordering is closed right now. Please check back soon.");
   }
 
@@ -563,7 +624,7 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
     taxQuery = geo.ok ? { placeGeoid: geo.placeGeoid, countyFips: geo.countyFips } : null;
   }
 
-  const { taxCents, tax } = await quoteTax(taxQuery, subtotalCents);
+  const { taxCents, tax, taxParts } = await quoteTax(taxQuery, subtotalCents);
   const discountCents = 0;
   const totalCents =
     subtotalCents +
@@ -585,6 +646,7 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
     taxCents,
     totalCents,
     tax,
+    taxParts,
     warnings,
     quotedAt: now.toISOString(),
   };

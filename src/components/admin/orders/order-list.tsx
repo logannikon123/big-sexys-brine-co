@@ -20,7 +20,12 @@ import {
   type OrderListRow,
   type OrderView,
 } from "./order-flow";
-import { OrderStatusBadge, RushBadge, SandboxBadge } from "./order-badges";
+import {
+  OrderMoneyBadges,
+  OrderStatusBadge,
+  RushBadge,
+  SandboxBadge,
+} from "./order-badges";
 
 interface OrderListProps {
   orders: OrderListRow[];
@@ -119,7 +124,13 @@ export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
                       <p className="text-lg font-bold">#{order.order_number}</p>
                       <p className="truncate font-medium">{order.customer_name}</p>
                     </div>
-                    <OrderStatusBadge status={order.status} />
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <OrderStatusBadge status={order.status} />
+                      <OrderMoneyBadges
+                        refundStatus={order.refund_status}
+                        disputeStatus={order.dispute_status}
+                      />
+                    </div>
                   </div>
                   <div className="mt-3 space-y-1 text-sm text-muted-foreground">
                     <p className="text-foreground">
@@ -195,7 +206,13 @@ export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
                       {formatPrice(order.total_cents)}
                     </TableCell>
                     <TableCell>
-                      <OrderStatusBadge status={order.status} />
+                      <div className="flex flex-wrap gap-1">
+                        <OrderStatusBadge status={order.status} />
+                        <OrderMoneyBadges
+                          refundStatus={order.refund_status}
+                          disputeStatus={order.dispute_status}
+                        />
+                      </div>
                     </TableCell>
                     <TableCell className="text-right">
                       <Link

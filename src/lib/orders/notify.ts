@@ -1,6 +1,15 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
 import { formatPrice } from "@/lib/utils";
+import {
+  buildRefundEmail,
+  buildStepEmail,
+  emailKindForStep,
+  CUSTOMER_EMAILS_ON,
+  type BuiltEmail,
+  type EmailOrder,
+} from "@/lib/orders/customer-emails";
+import type { OrderEmailKind, OrderStatus } from "@/types/orders";
 
 /**
  * When an order is paid, tell Jesse and the customer:
@@ -13,6 +22,9 @@ import { formatPrice } from "@/lib/utils";
  * later caller (a second webhook message, say) finds it set and stops. A
  * missing setting or a failed send is logged, never thrown, because the
  * customer has already paid and their order must not fail over an email.
+ *
+ * Later emails to the customer (ready, out for delivery, shipped, delivered,
+ * cancelled, refunded) are at the end of this file.
  */
 
 const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://bigsexysbrine.co").trim().replace(/\/$/, "");
@@ -229,5 +241,143 @@ export async function notifyOrderPaid(orderId: string): Promise<void> {
     }
   } catch (error) {
     console.error("Order alert failed:", error instanceof Error ? error.message : "unknown error");
+  }
+}
+
+/* ---------- Emails to the customer after the receipt ---------- */
+
+const EMAIL_ORDER_COLUMNS =
+  "order_number, public_token, fulfillment_type, pickup_instructions, customer_name, customer_email, address_line1, address_line2, city, state, postal_code, tracking_number, tracking_carrier, total_cents, refunded_cents, square_environment, order_items(product_name, product_size, quantity)";
+
+type EmailOrderRow = EmailOrder & { customer_email: string; pickup_instructions: string | null };
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : "unknown error";
+}
+
+/**
+ * Takes the job of sending one email by adding its row to order_emails.
+ * Returns the row's id, or null when the row was already there (the email
+ * went out before) or couldn't be saved.
+ */
+async function claimEmail(orderId: string, kind: OrderEmailKind, eventKey: string): Promise<number | null> {
+  const supabase = await createServiceClient();
+  const { data, error } = await supabase
+    .from("order_emails")
+    .insert({ order_id: orderId, kind, event_key: eventKey })
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    // 23505: the row exists, so this email was already sent or tried.
+    if (error.code !== "23505") console.error(`Customer email (${kind}): couldn't log it:`, error.message);
+    return null;
+  }
+  return (data?.id as number | undefined) ?? null;
+}
+
+async function finishEmail(id: number, error: string | null) {
+  const supabase = await createServiceClient();
+  const { error: saveError } = await supabase
+    .from("order_emails")
+    .update(error ? { error } : { sent_at: new Date().toISOString(), error: null })
+    .eq("id", id);
+  if (saveError) console.error("Customer email: couldn't record the result:", saveError.message);
+}
+
+async function loadEmailOrder(orderId: string): Promise<EmailOrderRow | null> {
+  const supabase = await createServiceClient();
+  const { data, error } = await supabase
+    .from("orders")
+    .select(EMAIL_ORDER_COLUMNS)
+    .eq("id", orderId)
+    .maybeSingle();
+  if (error) {
+    console.error("Customer email: couldn't read the order:", error.message);
+    return null;
+  }
+  return (data as EmailOrderRow | null) ?? null;
+}
+
+/** Today's pickup instructions from the store settings, else the ones on the order. */
+async function pickupInstructions(order: EmailOrderRow): Promise<string | null> {
+  const supabase = await createServiceClient();
+  const { data } = await supabase.from("store_settings").select("pickup_instructions").eq("id", 1).maybeSingle();
+  const fromSettings = (data?.pickup_instructions as string | undefined)?.trim();
+  return fromSettings || order.pickup_instructions;
+}
+
+/** Claims, sends and records one email. Never throws. */
+async function sendCustomerEmail(
+  orderId: string,
+  order: EmailOrderRow,
+  kind: OrderEmailKind,
+  eventKey: string,
+  build: () => Promise<BuiltEmail>
+): Promise<void> {
+  let claimed: number | null = null;
+  try {
+    claimed = await claimEmail(orderId, kind, eventKey);
+    if (claimed === null) return;
+
+    if (!process.env.RESEND_API_KEY) {
+      console.error(`Customer email (${kind}): RESEND_API_KEY is not set, so no email.`);
+      await finishEmail(claimed, "RESEND_API_KEY is not set");
+      return;
+    }
+    const email = await build();
+    const { Resend } = await import("resend");
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const replyTo = process.env.ORDER_ALERT_EMAIL;
+    const result = await resend.emails.send({
+      from: FROM,
+      to: order.customer_email,
+      ...(replyTo ? { replyTo } : {}),
+      subject: email.subject,
+      text: email.text,
+    });
+    if (result.error) {
+      console.error(`Customer email (${kind}): Resend refused it:`, result.error.message);
+      await finishEmail(claimed, result.error.message);
+      return;
+    }
+    await finishEmail(claimed, null);
+  } catch (error) {
+    console.error(`Customer email (${kind}) failed:`, errorText(error));
+    if (claimed !== null) await finishEmail(claimed, errorText(error)).catch(() => {});
+  }
+}
+
+/**
+ * Email the customer about a step Jesse took in the admin, once per order
+ * and step. Steps with no email (picked up, say) do nothing. Never throws.
+ */
+export async function notifyOrderStep(orderId: string, step: OrderStatus): Promise<void> {
+  try {
+    const order = await loadEmailOrder(orderId);
+    if (!order) return;
+    const kind = emailKindForStep(step, order.fulfillment_type);
+    if (!kind || kind === "refunded") return;
+    await sendCustomerEmail(orderId, order, kind, "", async () =>
+      buildStepEmail(kind, order, {
+        siteUrl: SITE_URL,
+        pickupInstructions: kind === "ready_for_pickup" ? await pickupInstructions(order) : null,
+      })
+    );
+  } catch (error) {
+    console.error("Customer email failed:", errorText(error));
+  }
+}
+
+/** Email the customer about one refund, once per Square refund id. Never throws. */
+export async function notifyOrderRefund(orderId: string, refundId: string, amountCents: number): Promise<void> {
+  if (!CUSTOMER_EMAILS_ON.refunded || amountCents <= 0) return;
+  try {
+    const order = await loadEmailOrder(orderId);
+    if (!order) return;
+    await sendCustomerEmail(orderId, order, "refunded", refundId, async () =>
+      buildRefundEmail(order, amountCents, { siteUrl: SITE_URL })
+    );
+  } catch (error) {
+    console.error("Customer email failed:", errorText(error));
   }
 }

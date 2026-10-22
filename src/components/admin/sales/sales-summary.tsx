@@ -27,6 +27,12 @@ function orders(count: number): string {
   return count === 1 ? "1 order" : `${count} orders`;
 }
 
+/** The line about lost card disputes, or null when there are none. */
+export function lostDisputeNote(summary: SalesSummary): string | null {
+  if (summary.lostDisputeOrders === 0) return null;
+  return `Leaves out ${orders(summary.lostDisputeOrders)} lost to a card dispute (${formatPrice(summary.lostDisputeCents)} taken back by the bank).`;
+}
+
 export function SalesSummaryTiles({ summary }: { summary: SalesSummary }) {
   const refundNote =
     summary.fullyRefundedOrders > 0
@@ -39,7 +45,12 @@ export function SalesSummaryTiles({ summary }: { summary: SalesSummary }) {
         <Tile
           label="Net sales"
           value={formatPrice(summary.netCents)}
-          note="What customers paid, less refunds. Includes tax and fees."
+          note={[
+            "What customers paid, less refunds. Includes tax and fees.",
+            lostDisputeNote(summary),
+          ]
+            .filter(Boolean)
+            .join(" ")}
         />
         <Tile label="Orders" value={String(summary.orders)} />
         <Tile
