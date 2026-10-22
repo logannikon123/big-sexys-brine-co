@@ -144,6 +144,7 @@ export function SortableFormList({
   return (
     <div className="space-y-3">
       <DndContext
+        id={instanceId}
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}

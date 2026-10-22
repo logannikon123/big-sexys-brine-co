@@ -374,6 +374,7 @@ export function ProductImageGallery({
         </label>
       ) : (
         <DndContext
+          id={instanceId}
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}

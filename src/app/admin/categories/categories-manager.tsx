@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -148,6 +148,7 @@ export function CategoriesManager({
 }: {
   categories: Category[];
 }) {
+  const dndId = useId();
   const [categories, setCategories] = useState(initialCategories);
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
@@ -277,6 +278,7 @@ export function CategoriesManager({
         </CardHeader>
         <CardContent>
           <DndContext
+            id={dndId}
             sensors={sensors}
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}

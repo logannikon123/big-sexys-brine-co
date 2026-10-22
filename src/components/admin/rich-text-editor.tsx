@@ -102,6 +102,9 @@ export function RichTextEditor({
       }),
     ],
     content: value || "",
+    // The page is rendered on the server first. Waiting until the browser to build the
+    // editor keeps the server and browser HTML identical (Tiptap's advice for Next.js).
+    immediatelyRender: false,
     editorProps: {
       attributes: {
         class: cn(
