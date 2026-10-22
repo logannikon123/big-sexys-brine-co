@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
+import { alertOwnerLater } from "@/lib/alerts";
 import { createServiceClient } from "@/lib/supabase/server";
 import { calculateDeliveryFee } from "@/lib/delivery-fee";
 import type { StoreSettings } from "@/lib/store-settings";
@@ -22,7 +23,37 @@ import { splitTaxCents } from "@/lib/tax-split";
  * orders table:
  *
  *   total = subtotal + delivery + rush + packing + postage + tax - discount
+ *
+ * When a read from the database or an address or distance lookup fails,
+ * Jesse gets an alert (src/lib/alerts.ts) after the customer has their
+ * answer.
  */
+
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://bigsexysbrine.co").trim().replace(/\/$/, "");
+
+/** Checkout couldn't read something it needs, so it turns customers away or charges no tax. */
+function alertSettings(problem: string, page = "store") {
+  alertOwnerLater({
+    key: "quote:settings",
+    title: "Checkout can't read its settings",
+    message: problem,
+    url: `${SITE_URL}/admin/${page}`,
+  });
+}
+
+/**
+ * An outside lookup failed. Checkout carries on (pickup, a rough distance,
+ * the typed address), so a longer wait between alerts is enough.
+ */
+function alertLookup(problem: string) {
+  alertOwnerLater({
+    key: "quote:lookup",
+    title: "An address or distance lookup failed",
+    message: `${problem} Details are in Vercel's logs.`,
+    url: `${SITE_URL}/admin/orders`,
+    windowHours: 12,
+  });
+}
 
 /** The Census codes that decide an address's food tax. */
 interface FoodTaxQuery {
@@ -234,6 +265,7 @@ async function loadProducts(ids: number[]): Promise<ProductRow[] | null> {
     .in("id", ids);
   if (error) {
     console.error("Quote: couldn't read products:", error.message);
+    alertSettings(`Checkout couldn't read the products (${error.message}), so nobody can place an order.`, "products");
     return null;
   }
   return (data ?? []) as ProductRow[];
@@ -257,6 +289,7 @@ async function loadSettings(): Promise<StoreSettings | null> {
     .maybeSingle();
   if (error || !data) {
     console.error("Quote: couldn't read store settings:", error?.message ?? "no row");
+    alertSettings(`Checkout couldn't read the store settings (${error?.message ?? "no row"}), so nobody can place an order.`);
     return null;
   }
   const row = data as Record<string, unknown>;
@@ -279,12 +312,14 @@ async function loadDeliveryOrigin(): Promise<{ lat: number; lon: number } | null
     .maybeSingle();
   if (error) {
     console.error("Quote: couldn't read the delivery starting point:", error.message);
+    alertSettings(`Checkout couldn't read the delivery starting point (${error.message}), so local delivery is turned away.`);
     return null;
   }
   const lat = data?.delivery_origin_lat;
   const lon = data?.delivery_origin_lon;
   if (typeof lat !== "number" || typeof lon !== "number") {
     console.error("Quote: the delivery starting point isn't saved in Store settings.");
+    alertSettings("The delivery starting point isn't saved in Store settings, so local delivery is turned away.");
     return null;
   }
   return { lat, lon };
@@ -373,11 +408,18 @@ async function quoteTax(
       "Quote: food tax lookup failed:",
       error instanceof Error ? error.message : "unknown error"
     );
+    alertSettings(
+      `Checkout's food tax lookup failed (${error instanceof Error ? error.message : "unknown error"}), so orders charge no local tax and need a tax review.`,
+      "tax"
+    );
     return noRate();
   }
 
   if (lookup.status === "unknown") {
-    if (lookup.reason === "lookup_failed") console.error("Quote: couldn't read food tax rates.");
+    if (lookup.reason === "lookup_failed") {
+      console.error("Quote: couldn't read food tax rates.");
+      alertSettings("Checkout couldn't read the food tax rates, so orders charge no local tax and need a tax review.", "tax");
+    }
     return noRate();
   }
 
@@ -538,7 +580,12 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
     // If the Census can't place the address, delivery is blocked and the
     // customer is pointed to pickup.
     const geo = await geocodeAddress(choice.address);
-    if (!geo.ok) return geocodeError(geo.reason);
+    if (!geo.ok) {
+      if (geo.reason === "service_down") {
+        alertLookup("The Census address lookup didn't answer, so checkout turned away a local delivery.");
+      }
+      return geocodeError(geo.reason);
+    }
 
     const distance = await drivingDistance(origin, { lat: geo.lat, lon: geo.lon });
     // Round first, so the miles saved on the order explain the fee.
@@ -551,6 +598,7 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
       );
     }
     if (distance.method !== "ors") {
+      alertLookup("OpenRouteService didn't give a driving distance, so checkout guessed one from a straight line.");
       warnings.push("Our map service didn't answer, so we estimated the driving distance.");
     }
 
@@ -583,6 +631,7 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
       }
       state = geo.state ?? address.state;
     } else if (geo.reason === "service_down") {
+      alertLookup("The Census address lookup didn't answer, so checkout couldn't check a shipping address.");
       warnings.push("We couldn't check this address right now. Please make sure it's correct.");
     } else {
       warnings.push(

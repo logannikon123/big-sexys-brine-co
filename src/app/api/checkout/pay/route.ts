@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { alertOwnerLater, errorMessage } from "@/lib/alerts";
 import { payInputSchema } from "@/lib/checkout/schema";
 import { placeOrder, type PayErrorCode, type PayResult } from "@/lib/checkout/pay";
 import { quoteForBrowser } from "@/lib/checkout/quote";
@@ -15,6 +16,7 @@ import { createRateLimiter, visitorKey } from "@/lib/rate-limit";
  */
 
 const NO_STORE = { "Cache-Control": "no-store" };
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://bigsexysbrine.co").trim().replace(/\/$/, "");
 
 // Fewer tries than quotes: each one can reach Square, and many card tries
 // from one visitor look like someone testing stolen cards.
@@ -90,6 +92,12 @@ export async function POST(request: NextRequest) {
       "Checkout payment failed:",
       error instanceof Error ? error.message : "unknown error"
     );
+    alertOwnerLater({
+      key: "checkout:crashed",
+      title: "Checkout hit an unexpected error",
+      message: `A customer's payment stopped partway (${errorMessage(error)}). They were asked to try again in a few minutes. The card may or may not have been charged, so check recent orders and Square.`,
+      url: `${SITE_URL}/admin/orders`,
+    });
     return NextResponse.json(
       {
         ok: false,

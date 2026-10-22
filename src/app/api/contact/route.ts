@@ -1,5 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { alertOwnerLater, errorMessage } from "@/lib/alerts";
+
+/** A contact message wasn't sent, and it isn't stored anywhere else. */
+function alertLost(reason: string) {
+  alertOwnerLater({
+    key: "forms:email-failed",
+    title: "A contact form message was lost",
+    message: `Someone sent the contact form, but the email didn't go out (${reason}). They were told it failed and may try again.`,
+  });
+}
 
 const contactSchema = z.object({
   name: z.string().min(2).max(100),
@@ -41,6 +51,7 @@ export async function POST(request: NextRequest) {
         // Resend reports a refused email in `error` instead of throwing.
         if (emailResult.error) {
           console.error("Resend did not send the contact email:", emailResult.error);
+          alertLost(`Resend refused it: ${emailResult.error.message}`);
           return NextResponse.json(
             { error: "Failed to send message" },
             { status: 500 }
@@ -50,6 +61,7 @@ export async function POST(request: NextRequest) {
         console.log("Contact email sent:", emailResult.data?.id);
       } catch (emailError) {
         console.error("Failed to send contact email via Resend:", emailError);
+        alertLost(errorMessage(emailError));
         return NextResponse.json(
           { error: "Failed to send message" },
           { status: 500 }
@@ -58,6 +70,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Contact messages aren't stored anywhere else, so without email they'd be lost.
       console.error("Contact form: RESEND_API_KEY is not set, so the message was not sent.");
+      alertLost("RESEND_API_KEY is not set");
       return NextResponse.json(
         { error: "Failed to send message" },
         { status: 500 }

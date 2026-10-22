@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   claimAlert,
@@ -31,8 +32,8 @@ import {
  *   emails, phone numbers or addresses in them. Order numbers are fine.
  * - url, if given, is the link in the phone alert and the email.
  * - It never throws, and a failed send never stops the caller. Inside a
- *   request, run it after the answer with next/server's after(), as pay.ts
- *   does for order alerts, so the customer never waits on it.
+ *   request, use alertOwnerLater (below), which sends it after the answer
+ *   goes out, so the customer never waits on it.
  * - It sends only on the live site (VERCEL_ENV is "production"). Local and
  *   preview copies never send a real alert and never touch owner_alerts:
  *   they log what they would have sent and return. Preview copies and the
@@ -214,4 +215,26 @@ export async function alertOwner(alert: OwnerAlert): Promise<AlertResult> {
     console.error("Owner alert failed:", error instanceof Error ? error.message : "unknown error");
     return held;
   }
+}
+
+/**
+ * alertOwner, run after the answer goes out (next/server's after()), so an
+ * alert never slows or breaks the request that found the problem. Outside a
+ * request (a script, say) after() isn't available, so it sends straight away.
+ */
+export function alertOwnerLater(alert: OwnerAlert): void {
+  try {
+    after(() => alertOwner(alert).then(() => undefined));
+  } catch {
+    void alertOwner(alert);
+  }
+}
+
+/** An error's message, for an alert. Never the whole error, which can hold the request. */
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") {
+    return error.message;
+  }
+  return "unknown error";
 }

@@ -19,7 +19,10 @@ import { squareEnvironment } from "@/lib/square";
  * - the food tax table can't be read, or has no confirmed rates,
  * - alert settings missing on the live site.
  *
- * It only reads. Alerts name order numbers, never customer details. Orders
+ * It only reads, with one exception: once its alert about paid orders with
+ * no new-order alert gets through, it marks those orders announced
+ * (alerted_at), so the same orders don't alert again every few hours for a
+ * week. Alerts name order numbers, never customer details. Orders
  * are checked for this copy's Square account only, so test orders from
  * local and preview copies never alert the live site. Problems older than a
  * week are left out, so an old one stops alerting on its own.
@@ -50,6 +53,8 @@ interface Problem {
   message: string;
   url: string;
   count: number;
+  /** For unalerted_paid: the orders to mark announced once the alert is out. */
+  orderNumbers?: number[];
 }
 
 function authorized(request: NextRequest): boolean {
@@ -76,7 +81,9 @@ async function findProblems(now: number): Promise<Problem[]> {
   const environment = squareEnvironment();
   const since = ago(now, LOOK_BACK);
 
-  // 1. Paid, but Jesse was never told. alerted_at is set when the alert starts.
+  // 1. Paid, but Jesse was never told. alerted_at is set when the new-order
+  // alert starts, and cleared again if neither the phone alert nor the alert
+  // email got through (src/lib/orders/notify.ts).
   const unalerted = await supabase
     .from("orders")
     .select("order_number")
@@ -98,6 +105,7 @@ async function findProblems(now: number): Promise<Problem[]> {
       message: `Paid more than 10 minutes ago, but the new-order alert never went out: ${numberList(numbers)}. Check the orders and pack them as normal.`,
       url: `${SITE_URL}/admin/orders`,
       count: numbers.length,
+      orderNumbers: numbers,
     });
   }
 
@@ -204,6 +212,17 @@ function databaseProblem(table: string, error: string): Problem {
   };
 }
 
+/** Jesse now knows about these paid orders, so stop alerting about them. */
+async function markAnnounced(orderNumbers: number[]) {
+  const supabase = await createServiceClient();
+  const { error } = await supabase
+    .from("orders")
+    .update({ alerted_at: new Date().toISOString() })
+    .in("order_number", orderNumbers)
+    .is("alerted_at", null);
+  if (error) console.error("Health check: couldn't mark orders announced:", error.message);
+}
+
 export async function GET(request: NextRequest) {
   if (!authorized(request)) {
     if (!process.env.CRON_SECRET) console.error("Health check: CRON_SECRET is not set, so the check can't run.");
@@ -240,6 +259,7 @@ export async function GET(request: NextRequest) {
       url: problem.url,
     });
     sent.push({ kind: problem.kind, key: problem.key, ...result });
+    if (result.sent && problem.orderNumbers) await markAnnounced(problem.orderNumbers);
   }
   return NextResponse.json(
     { ...base, problems: problems.map(({ kind, key, count }) => ({ kind, key, count })), sent },
