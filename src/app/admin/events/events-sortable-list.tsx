@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Pencil, Repeat } from "lucide-react";
 import { EventDeleteButton } from "./event-delete-button";
 import { SortableList } from "@/components/admin/sortable-list";
+import { eventDayParts, formatEventDay } from "@/lib/event-dates";
 import { updateEventOrder } from "../actions";
 
 const typeBadgeColors: Record<string, string> = {
@@ -32,25 +33,25 @@ interface Event {
 }
 
 function formatDate(event: Event): string {
-  const start = new Date(event.date + "T00:00:00").toLocaleDateString("en-US", {
+  const start = formatEventDay(event.date, {
     month: "short",
     day: "numeric",
   });
   if (event.is_recurring && event.recurrence_day && event.end_date) {
-    const end = new Date(event.end_date + "T00:00:00").toLocaleDateString("en-US", {
+    const end = formatEventDay(event.end_date, {
       month: "short",
       day: "numeric",
     });
     return `${event.recurrence_day}s, ${start} – ${end}`;
   }
   if (event.end_date) {
-    const end = new Date(event.end_date + "T00:00:00").toLocaleDateString("en-US", {
+    const end = formatEventDay(event.end_date, {
       month: "short",
       day: "numeric",
     });
     return `${start} – ${end}`;
   }
-  const year = new Date(event.date + "T00:00:00").getFullYear();
+  const { year } = eventDayParts(event.date);
   return `${start}, ${year}`;
 }
 

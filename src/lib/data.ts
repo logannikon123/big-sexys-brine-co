@@ -2,6 +2,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { unstable_cache } from "next/cache";
 import type { Product, ProductImage, Event, ClassInfo, Testimonial, RetailLocation } from "@/types";
 import type { StoreSettings } from "@/lib/store-settings";
+import { isEventUpcoming } from "@/lib/event-dates";
 
 // Fallback to JSON files if Supabase is not configured
 const useSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -254,35 +255,18 @@ export const getRetailLocations = unstable_cache(
   { tags: ["retail-locations"], revalidate: 60 }
 );
 
+// An event stays upcoming through its last day (end_date, or date for a
+// one-day event) in Colorado. See src/lib/event-dates.ts.
 export async function getUpcomingEvents(): Promise<Event[]> {
   const events = await getEvents();
   const now = new Date();
-  return events.filter((e) => {
-    // For recurring events with an end_date, check if end_date is in the future
-    if (e.is_recurring && e.end_date) {
-      return new Date(e.end_date) >= now;
-    }
-    // For events with end_date (multi-day), check end_date
-    if (e.end_date) {
-      return new Date(e.end_date) >= now;
-    }
-    // Otherwise check the single date
-    return new Date(e.date) >= now;
-  });
+  return events.filter((e) => isEventUpcoming(e, now));
 }
 
 export async function getPastEvents(): Promise<Event[]> {
   const events = await getEvents();
   const now = new Date();
-  return events.filter((e) => {
-    if (e.is_recurring && e.end_date) {
-      return new Date(e.end_date) < now;
-    }
-    if (e.end_date) {
-      return new Date(e.end_date) < now;
-    }
-    return new Date(e.date) < now;
-  });
+  return events.filter((e) => !isEventUpcoming(e, now));
 }
 
 // Class Info
