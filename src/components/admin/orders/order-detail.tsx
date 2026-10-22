@@ -13,7 +13,9 @@ import type {
   OrderEmailKind,
   OrderItem,
   OrderRefund,
+  OrderTaxPart,
 } from "@/types/orders";
+import { splitTaxCents, type RefundFor } from "@/lib/tax-split";
 import {
   OPEN_STATUSES,
   formatDeliveryDate,
@@ -29,12 +31,14 @@ import {
 import { OrderStatusButtons } from "./order-status-buttons";
 import { OrderTrackingForm } from "./order-tracking-form";
 import { OrderNoteForm } from "./order-note-form";
+import { RefundForBox } from "./refund-for-form";
 
 interface OrderDetailProps {
   order: Order;
   items: OrderItem[];
   refunds: OrderRefund[];
   emails: OrderEmail[];
+  taxParts: OrderTaxPart[];
   demo: boolean;
 }
 
@@ -256,7 +260,130 @@ function refundStateNote(status: string): string | null {
   }
 }
 
-function Money({ order, refunds }: { order: Order; refunds: OrderRefund[] }) {
+const REFUND_FOR_LABEL: Record<RefundFor, string> = {
+  fees: "Fees only",
+  jars: "Jars only",
+  both: "Some of each",
+  unsure: "Not sure",
+};
+
+/**
+ * The saved split of one refund in words, with the tax shared between the
+ * order's city and county as the tax report shares it.
+ */
+function RefundSplitText({
+  refund,
+  taxParts,
+}: {
+  refund: OrderRefund;
+  taxParts: OrderTaxPart[];
+}) {
+  if (refund.jars_cents === null || refund.fees_cents === null || refund.tax_cents === null) {
+    return (
+      <p className="text-muted-foreground">
+        {refund.refund_for === "unsure"
+          ? "Not sure. The tax report lists this refund for you to check."
+          : "Not answered yet."}
+      </p>
+    );
+  }
+  const shares =
+    refund.tax_cents > 0 && taxParts.length > 0
+      ? splitTaxCents(
+          refund.jars_cents,
+          taxParts.map((p) => ({ rateBps: p.rate_bps })),
+          refund.tax_cents
+        )
+      : [];
+  const places = taxParts
+    .map((p, i) => ({ name: p.name, cents: shares[i] ?? 0 }))
+    .filter((p) => p.cents > 0);
+  return (
+    <>
+      <p>
+        {refund.refund_for ? `${REFUND_FOR_LABEL[refund.refund_for]}: ` : "Whole order: "}
+        jars {formatPrice(refund.jars_cents)}, tax {formatPrice(refund.tax_cents)}, fees{" "}
+        {formatPrice(refund.fees_cents)}
+      </p>
+      {places.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Tax back: {places.map((p) => `${p.name} ${formatPrice(p.cents)}`).join(", ")}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * For the tax report: what each refund was for. A refund of the whole order
+ * splits by itself. For a part refund, Jesse picks.
+ */
+function RefundSplits({
+  order,
+  refunds,
+  taxParts,
+  demo,
+}: {
+  order: Order;
+  refunds: OrderRefund[];
+  taxParts: OrderTaxPart[];
+  demo: boolean;
+}) {
+  const live = refunds.filter((r) => r.status === "COMPLETED" || r.status === "PENDING");
+  if (live.length === 0) return null;
+  // An order that paid no tax gets none back.
+  const rateBps = order.tax_cents > 0 ? (order.tax_rate_bps ?? 0) : 0;
+
+  return (
+    <div className="mt-4 space-y-3 border-t border-border pt-4">
+      <div>
+        <p className="font-medium">What each refund was for</p>
+        <p className="text-xs text-muted-foreground">
+          Square refunds an amount, not items. Your answer tells the tax report
+          how much tax went back to each city and county.
+        </p>
+      </div>
+      {live.map((refund) => {
+        const automatic = refund.refund_for === null && refund.jars_cents !== null;
+        return (
+          <div key={refund.id} className="space-y-2 rounded-md border border-border p-3">
+            <p className="text-sm font-medium">
+              {formatPrice(refund.amount_cents)} refund
+              {refund.source === "backfill" ? "" : `, ${formatOrderTime(refund.refunded_at)}`}
+            </p>
+            {automatic ? (
+              <div className="text-sm">
+                <RefundSplitText refund={refund} taxParts={taxParts} />
+              </div>
+            ) : (
+              <RefundForBox
+                refundId={refund.id}
+                amountCents={refund.amount_cents}
+                rateBps={rateBps}
+                refundFor={refund.refund_for}
+                jarsCents={refund.jars_cents}
+                demo={demo}
+                summary={<RefundSplitText refund={refund} taxParts={taxParts} />}
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function Money({
+  order,
+  refunds,
+  taxParts,
+  demo,
+}: {
+  order: Order;
+  refunds: OrderRefund[];
+  taxParts: OrderTaxPart[];
+  demo: boolean;
+}) {
   const kept = order.total_cents - order.refunded_cents;
   return (
     <Section title="Money">
@@ -346,6 +473,7 @@ function Money({ order, refunds }: { order: Order; refunds: OrderRefund[] }) {
           </>
         )}
       </dl>
+      <RefundSplits order={order} refunds={refunds} taxParts={taxParts} demo={demo} />
     </Section>
   );
 }
@@ -491,6 +619,7 @@ export function OrderDetail({
   items,
   refunds,
   emails,
+  taxParts,
   demo,
 }: OrderDetailProps) {
   const isShipping = order.fulfillment_type === "shipping";
@@ -560,7 +689,7 @@ export function OrderDetail({
           <HowTheyGetIt order={order} />
           <Items items={items} />
           <Customer order={order} />
-          <Money order={order} refunds={refunds} />
+          <Money order={order} refunds={refunds} taxParts={taxParts} demo={demo} />
           <Payment order={order} />
         </div>
 

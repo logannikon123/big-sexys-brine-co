@@ -33,6 +33,8 @@ const HEADER: Cell[] = [
   "Orders",
   "Taxable jar sales ($)",
   "Tax collected ($)",
+  "Refunded jar sales taken off ($)",
+  "Refunded tax taken off ($)",
 ];
 
 function placeRow(section: string, l: TaxReportLine): Cell[] {
@@ -46,6 +48,8 @@ function placeRow(section: string, l: TaxReportLine): Cell[] {
     l.orders,
     dollars(l.taxableCents),
     dollars(l.taxCents),
+    dollars(l.refundTaxableCents),
+    dollars(l.refundTaxCents),
   ];
 }
 
@@ -60,6 +64,8 @@ function textRow(section: string, l: TaxTextLine): Cell[] {
     l.orders,
     dollars(l.jarSalesCents),
     dollars(l.taxCents),
+    dollars(l.refundJarsCents),
+    dollars(l.refundTaxCents),
   ];
 }
 
@@ -78,6 +84,11 @@ export function taxReportCsv(report: TaxReport, periodLabel: string): string {
     ["Local food tax report", periodLabel],
     ["Paid orders through Square's live system, by the day they were paid (Colorado time)."],
     ["Taxable jar sales are jar prices only. Fees were not taxed."],
+    [
+      report.refundTiming === "paid"
+        ? "Refunds count with their order's paid date. Sales and tax are less the refunds whose split is known."
+        : "Refunds count in the dates they were made (Colorado time). Sales and tax are less the refunds whose split is known.",
+    ],
     [],
     HEADER,
     ...report.state.lines.map((l) => placeRow(STATE, l)),
@@ -94,7 +105,19 @@ export function taxReportCsv(report: TaxReport, periodLabel: string): string {
 
   rows.push(
     [],
-    ["All orders", null, null, null, null, null, report.orders, dollars(report.jarSalesCents), dollars(report.taxCents)],
+    [
+      "All orders",
+      null,
+      null,
+      null,
+      null,
+      null,
+      report.orders,
+      dollars(report.jarSalesCents),
+      dollars(report.taxCents),
+      dollars(report.refundsTaken.jarsCents),
+      dollars(report.refundsTaken.taxCents),
+    ],
     [],
     ["Notes", "Orders", "Jar sales ($)", "Tax on those orders ($)", "Money refunded ($)", "Order numbers"]
   );
@@ -107,9 +130,10 @@ export function taxReportCsv(report: TaxReport, periodLabel: string): string {
       dollars(n.refundedCents),
       n.orderNumbers.join(" "),
     ]);
-  note("Partial refunds (still counted above)", report.partialRefunds);
-  note("Refunded in full (left out above)", report.fullRefunds);
-  note("Cancelled after payment (left out above)", report.cancelledAfterPayment);
+  const where = report.refundTiming === "paid" ? "left out above" : "counted as sales above";
+  note("Refunds with no split (still counted in full above)", report.unsplitRefunds);
+  note(`Refunded in full (${where})`, report.fullRefunds);
+  note(`Cancelled after payment (${where})`, report.cancelledAfterPayment);
   if (report.splitMismatches.length > 0) {
     rows.push(["Split doesn't match the order's tax", report.splitMismatches.join(" ")]);
   }

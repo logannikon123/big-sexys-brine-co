@@ -19,6 +19,9 @@
  *
  * So the shares always add up exactly to the order's tax, and no share is
  * ever below zero.
+ *
+ * The same rules split a part refund: splitRefund (at the bottom) works out
+ * its jars, fees and tax, and splitTaxCents shares its tax between places.
  */
 
 export interface TaxSplitPlace {
@@ -56,4 +59,69 @@ export function splitTaxCents(
     shares[largest] += difference;
   }
   return shares;
+}
+
+/* ---------- Part refunds ---------- */
+
+/**
+ * What a part refund was for, as Jesse answers it on the admin order page:
+ * fees only (no tax), jars only (jars and their tax), some of each (he
+ * types the jar price), or not sure.
+ */
+export type RefundFor = "fees" | "jars" | "both" | "unsure";
+
+export interface RefundParts {
+  jarsCents: number;
+  feesCents: number;
+  taxCents: number;
+}
+
+/**
+ * The jars and tax in an amount that is jars plus their tax, such as a
+ * refund of "jars only". The jar price J is the one where J plus the tax
+ * checkout would charge on J (rule 1 above) comes to the amount. Rounding
+ * leaves a few amounts that no jar price reaches; then J is the amount
+ * divided by (1 + rate), rounded, and the tax is whatever is left, so the
+ * two always add up to the amount.
+ */
+export function jarsAndTaxIn(amountCents: number, rateBps: number): RefundParts {
+  const guess = Math.round((amountCents * 10_000) / (10_000 + rateBps));
+  for (const jars of [guess, guess - 1, guess + 1]) {
+    if (jars >= 0 && jars + taxOn(jars, rateBps) === amountCents) {
+      return { jarsCents: jars, feesCents: 0, taxCents: amountCents - jars };
+    }
+  }
+  const jars = Math.min(Math.max(guess, 0), amountCents);
+  return { jarsCents: jars, feesCents: 0, taxCents: amountCents - jars };
+}
+
+/**
+ * How a part refund splits into jars, fees and tax, from Jesse's answer.
+ * rateBps is the order's total food rate (0 if it paid no tax). jarsCents
+ * is the jar price he typed, used only for "both".
+ *
+ * Returns null for "unsure", and when the answer doesn't fit the amount:
+ * for "both", a jar price of zero, or jars plus their tax above the refund.
+ */
+export function splitRefund(
+  amountCents: number,
+  rateBps: number,
+  refundFor: RefundFor,
+  jarsCents = 0
+): RefundParts | null {
+  switch (refundFor) {
+    case "fees":
+      return { jarsCents: 0, feesCents: amountCents, taxCents: 0 };
+    case "jars":
+      return jarsAndTaxIn(amountCents, rateBps);
+    case "both": {
+      if (!Number.isInteger(jarsCents) || jarsCents <= 0) return null;
+      const taxCents = taxOn(jarsCents, rateBps);
+      const feesCents = amountCents - jarsCents - taxCents;
+      if (feesCents < 0) return null;
+      return { jarsCents, feesCents, taxCents };
+    }
+    default:
+      return null;
+  }
 }
