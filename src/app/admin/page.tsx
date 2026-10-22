@@ -14,6 +14,7 @@ import Link from "next/link";
 import { ClearCacheButton } from "@/components/admin/clear-cache-button";
 import { countNewOrders } from "@/app/admin/orders/order-data";
 import { OwnerAlertsCard } from "@/components/admin/owner-alerts-card";
+import { formatEventDay, isEventUpcoming } from "@/lib/event-dates";
 
 export default async function AdminDashboardPage() {
   await requireAuth();
@@ -42,11 +43,7 @@ export default async function AdminDashboardPage() {
     .order("date", { ascending: true });
   const now = new Date();
   const upcomingEvents = (allEvents ?? [])
-    .filter((e) => {
-      if (e.is_recurring && e.end_date) return new Date(e.end_date) >= now;
-      if (e.end_date) return new Date(e.end_date) >= now;
-      return new Date(e.date) >= now;
-    })
+    .filter((e) => isEventUpcoming(e, now))
     .slice(0, 5);
 
   // Get recent testimonials
@@ -170,7 +167,7 @@ export default async function AdminDashboardPage() {
                       </p>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {new Date(event.date + "T00:00:00").toLocaleDateString("en-US", {
+                      {formatEventDay(event.date, {
                         month: "short",
                         day: "numeric",
                       })}

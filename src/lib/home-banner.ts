@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatEventDay, isEventUpcoming } from "@/lib/event-dates";
 
 /**
  * The home page banner: one row of settings in the home_banner table, plus up
@@ -494,17 +495,10 @@ export function readableTextOn(hex: string): string {
 
 // Events
 
-/**
- * True while an event still shows under "Upcoming Events" on the Find Us
- * page. This is the same rule getUpcomingEvents() in src/lib/data.ts uses,
- * so a banner link never points at an event card that has moved to "Past".
- */
-export function isEventUpcoming(
-  event: Pick<BannerEvent, "date" | "end_date">,
-  now: Date
-): boolean {
-  return new Date(event.end_date ?? event.date) >= now;
-}
+// isEventUpcoming is the same rule getUpcomingEvents() in src/lib/data.ts
+// uses, so a banner link never points at an event card that has moved to
+// "Past" on the Find Us page.
+export { isEventUpcoming };
 
 /** The next upcoming event: the soonest start date, for "Automatic" mode. */
 export function pickNextEvent<T extends BannerEvent>(events: T[], now: Date): T | null {
@@ -514,13 +508,9 @@ export function pickNextEvent<T extends BannerEvent>(events: T[], now: Date): T 
   return upcoming[0] ?? null;
 }
 
-/**
- * "Sat, Oct 25" for a date-only string. The date is read as UTC and shown in
- * UTC, so the server and the browser always print the same day.
- */
+/** "Sat, Oct 25" for a date-only string. */
 function formatDay(date: string, withWeekday = true): string {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
-    timeZone: "UTC",
+  return formatEventDay(date, {
     weekday: withWeekday ? "short" : undefined,
     month: "short",
     day: "numeric",

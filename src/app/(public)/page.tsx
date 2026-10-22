@@ -11,6 +11,7 @@ import { HomeBannerView } from "@/components/home/HomeBannerView";
 import { BannerErrorBoundary } from "@/components/home/BannerErrorBoundary";
 import { getHomeBanner } from "@/lib/home-banner-server";
 import { isBannerShowing, pickNextEvent, resolveBanner } from "@/lib/home-banner";
+import { formatEventDay } from "@/lib/event-dates";
 
 export const revalidate = 60;
 
@@ -274,7 +275,7 @@ export default async function HomePage() {
                   <div className="space-y-1 text-sm text-brand-cream/60">
                     <div className="flex items-center gap-2">
                       <Calendar size={14} />
-                      {new Date(event.date).toLocaleDateString("en-US", {
+                      {formatEventDay(event.date, {
                         weekday: "long",
                         month: "long",
                         day: "numeric",
