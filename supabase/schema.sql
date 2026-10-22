@@ -814,3 +814,27 @@ CREATE POLICY "Admin read marketing_consent_events" ON public.marketing_consent_
 CREATE POLICY "Admin unsubscribe marketing_consent_events" ON public.marketing_consent_events
   FOR INSERT TO authenticated
   WITH CHECK ((select public.is_admin()) AND action = 'opt_out' AND source = 'admin');
+
+-- Alerts to Jesse when something breaks, one row per kind of problem, so a
+-- problem that keeps coming back alerts at most every few hours (see
+-- supabase/migrations/20261021212454_owner_alerts.sql and src/lib/alerts.ts).
+-- No customer details. Admins may read; server code writes with the service
+-- role key.
+CREATE TABLE IF NOT EXISTS public.owner_alerts (
+  key TEXT PRIMARY KEY CHECK (btrim(key) <> ''),
+  title TEXT NOT NULL DEFAULT '',
+  count INTEGER NOT NULL DEFAULT 1 CHECK (count >= 0),
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_sent_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_owner_alerts_last_seen ON public.owner_alerts (last_seen_at DESC);
+
+ALTER TABLE public.owner_alerts ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.owner_alerts FROM anon, authenticated;
+GRANT SELECT ON public.owner_alerts TO authenticated;
+
+DROP POLICY IF EXISTS "Admin read owner_alerts" ON public.owner_alerts;
+CREATE POLICY "Admin read owner_alerts" ON public.owner_alerts FOR SELECT TO authenticated
+  USING ((select public.is_admin()));
