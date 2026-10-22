@@ -8,6 +8,8 @@
  * them with the service role key.
  */
 
+import type { RefundFor } from "@/lib/tax-split";
+
 /**
  * The order's step. Square sets pending_payment, payment_failed and paid;
  * Jesse sets the rest. Refunds and disputes live in their own fields, so
@@ -163,10 +165,16 @@ export interface OrderRefund {
   /** Square's word: PENDING, COMPLETED, REJECTED or FAILED. */
   status: string;
   reason: string | null;
-  /** The split into jars, fees and tax. Null unless it is certain. */
+  /**
+   * The split into jars, fees and tax. The webhook fills it in for a refund
+   * of the whole order; for a part refund it comes from Jesse's answer in
+   * refund_for. Null until then, and for "unsure".
+   */
   jars_cents: number | null;
   fees_cents: number | null;
   tax_cents: number | null;
+  /** What a part refund was for, as Jesse answered. Null if not answered. */
+  refund_for: RefundFor | null;
   source: "square" | "backfill";
   refunded_at: string;
   created_at: string;
@@ -202,4 +210,17 @@ export interface SquareWebhookEvent {
   received_at: string;
   processed_at: string | null;
   payload: unknown;
+}
+
+/** One city or county in an order's tax split (the order_tax_parts table). */
+export interface OrderTaxPart {
+  id: number;
+  order_id: string;
+  kind: "county" | "city" | "district";
+  name: string;
+  /** 'state', 'self' (the city collects its own) or null (no sales tax). */
+  collected_by: "state" | "self" | null;
+  rate_bps: number;
+  taxable_cents: number;
+  tax_cents: number;
 }

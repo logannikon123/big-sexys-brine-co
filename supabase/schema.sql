@@ -327,8 +327,11 @@ CREATE TABLE IF NOT EXISTS square_webhook_events (
 
 -- One row for each refund Square tells us about. square_refund_id is empty
 -- only on 'backfill' rows, copied in for refunds made before this table.
--- The jars, fees and tax split is filled in only when certain (a single
--- refund of the whole order); otherwise all three are empty.
+-- The webhook fills in the jars, fees and tax split only when certain (a
+-- single refund of the whole order). For a part refund, Jesse says on the
+-- admin order page what it was for (refund_for), and the site works out the
+-- split from that (see supabase/migrations/20261022010406_refund_reasons.sql).
+-- 'unsure', or no answer yet, leaves the split empty.
 CREATE TABLE IF NOT EXISTS order_refunds (
   id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   order_id UUID NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
@@ -340,6 +343,7 @@ CREATE TABLE IF NOT EXISTS order_refunds (
   jars_cents INTEGER CHECK (jars_cents >= 0),
   fees_cents INTEGER CHECK (fees_cents >= 0),
   tax_cents INTEGER CHECK (tax_cents >= 0),
+  refund_for TEXT CHECK (refund_for IN ('fees', 'jars', 'both', 'unsure')),
   source TEXT NOT NULL DEFAULT 'square' CHECK (source IN ('square', 'backfill')),
   refunded_at TIMESTAMPTZ NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -347,6 +351,9 @@ CREATE TABLE IF NOT EXISTS order_refunds (
   CONSTRAINT order_refunds_parts_add_up CHECK (
     (jars_cents IS NULL AND fees_cents IS NULL AND tax_cents IS NULL)
     OR (jars_cents + fees_cents + tax_cents = amount_cents)
+  ),
+  CONSTRAINT order_refunds_answer_matches_split CHECK (
+    refund_for IS NULL OR ((refund_for = 'unsure') = (jars_cents IS NULL))
   )
 );
 
@@ -517,6 +524,8 @@ GRANT UPDATE (
 REVOKE ALL ON SEQUENCE orders_order_number_seq, order_items_id_seq FROM anon, authenticated;
 REVOKE ALL ON order_refunds, order_emails FROM anon, authenticated;
 GRANT SELECT ON order_refunds, order_emails TO authenticated;
+-- Admins may answer what a part refund was for (the rule below).
+GRANT UPDATE (refund_for, jars_cents, fees_cents, tax_cents) ON order_refunds TO authenticated;
 REVOKE ALL ON SEQUENCE order_refunds_id_seq, order_emails_id_seq FROM anon, authenticated;
 
 -- Order tax split: the same as order_items. Signed-in users may read (the
@@ -609,6 +618,10 @@ CREATE POLICY "Admin update orders" ON orders FOR UPDATE TO authenticated USING 
 CREATE POLICY "Admin read order_items" ON order_items FOR SELECT TO authenticated USING ((select public.is_admin()));
 CREATE POLICY "Admin read square_webhook_events" ON square_webhook_events FOR SELECT TO authenticated USING ((select public.is_admin()));
 CREATE POLICY "Admin read order_refunds" ON order_refunds FOR SELECT TO authenticated USING ((select public.is_admin()));
+-- Only on refunds the webhook didn't split by itself, and an answer must stay.
+CREATE POLICY "Admin update order_refunds" ON order_refunds FOR UPDATE TO authenticated
+  USING ((select public.is_admin()) AND (refund_for IS NOT NULL OR jars_cents IS NULL))
+  WITH CHECK ((select public.is_admin()) AND refund_for IS NOT NULL);
 CREATE POLICY "Admin read order_emails" ON order_emails FOR SELECT TO authenticated USING ((select public.is_admin()));
 CREATE POLICY "Admin read order_tax_parts" ON order_tax_parts FOR SELECT TO authenticated USING ((select public.is_admin()));
 

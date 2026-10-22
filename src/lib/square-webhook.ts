@@ -236,7 +236,10 @@ async function handleRefund(refund: RefundFields) {
       amount_cents: amount,
       status: refund.status ?? "PENDING",
       reason: refund.reason ?? null,
-      ...(refundSplit(order, amount) ?? { jars_cents: null, fees_cents: null, tax_cents: null }),
+      // The split goes in only when it is certain. Otherwise it is left out,
+      // so a later message about the same refund keeps the split Jesse gave
+      // on the admin order page (new rows start with it empty).
+      ...refundSplit(order, amount),
       refunded_at: refund.created_at ?? new Date().toISOString(),
     },
     { onConflict: "square_refund_id" }

@@ -24,6 +24,7 @@ export default async function AdminOrderPage({
         items={found.items}
         refunds={found.refunds}
         emails={found.emails}
+        taxParts={found.taxParts}
         demo={demo}
       />
     </div>

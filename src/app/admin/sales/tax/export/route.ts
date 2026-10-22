@@ -1,6 +1,6 @@
 /**
  * CSV download of the tax report: /admin/sales/tax/export, with the same
- * ?period= choices as the page.
+ * ?period= and &refunds= choices as the page.
  *
  * Checks for a signed-in admin before it reads anything. The middleware
  * checks too.
@@ -8,7 +8,12 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { isAdmin } from "@/lib/supabase/is-admin";
-import { parseTaxPeriod, periodFileTag, periodLabel } from "@/lib/admin/tax-report-filters";
+import {
+  parseRefundTiming,
+  parseTaxPeriod,
+  periodFileTag,
+  periodLabel,
+} from "@/lib/admin/tax-report-filters";
 import { loadTaxReport } from "@/lib/admin/tax-report-data";
 import { taxReportCsv } from "@/lib/admin/tax-report-csv";
 import { denverDateString } from "@/lib/admin/sales-stats";
@@ -34,8 +39,9 @@ export async function GET(request: Request): Promise<Response> {
   if (!user) return plain("Sign in as an admin first.", 401);
   if (!isAdmin(user)) return plain("Only admins can download the tax report.", 403);
 
-  const period = parseTaxPeriod(new URL(request.url).searchParams);
-  const { report, error } = await loadTaxReport(period);
+  const params = new URL(request.url).searchParams;
+  const period = parseTaxPeriod(params);
+  const { report, error } = await loadTaxReport(period, parseRefundTiming(params));
   if (!report) return plain(error ?? "The tax report didn't load.", 500);
 
   const today = denverDateString(new Date().toISOString());

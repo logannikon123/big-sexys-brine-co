@@ -7,9 +7,9 @@
  * so, which never happens on the live site.
  */
 
-import type { Order, OrderItem } from "@/types/orders";
+import type { Order, OrderItem, OrderRefund } from "@/types/orders";
 
-type DemoOrder = { order: Order; items: OrderItem[] };
+type DemoOrder = { order: Order; items: OrderItem[]; refunds?: OrderRefund[] };
 
 /** The fields every demo order shares. Each order below fills in the rest. */
 const blank: Omit<
@@ -236,6 +236,25 @@ export const DEMO_ORDERS: DemoOrder[] = [
     items: [
       item(4, "demo-1002", "Spicy Dill Pickles", "16oz", 1500, 1),
       item(5, "demo-1002", "Bread and Butter Chips", "16oz", 1200, 1),
+    ],
+    refunds: [
+      {
+        id: 1,
+        order_id: "demo-1002",
+        square_refund_id: "demo-refund-1",
+        square_payment_id: null,
+        amount_cents: 300,
+        status: "COMPLETED",
+        reason: "Waived packing fee",
+        jars_cents: null,
+        fees_cents: null,
+        tax_cents: null,
+        refund_for: null,
+        source: "square",
+        refunded_at: "2026-10-18T16:05:00Z",
+        created_at: "2026-10-18T16:05:00Z",
+        updated_at: "2026-10-18T16:05:00Z",
+      },
     ],
   },
   // Local delivery, cancelled and refunded in Square.

@@ -5,9 +5,13 @@
  *   ?period=custom&from=2026-10-01&to=2026-10-15
  * With no period the report shows last month. Dates are Colorado dates, and
  * both ends are included.
+ *
+ * &refunds=made counts each refund in the dates it was made. Without it, a
+ * refund counts with its order's paid date (see src/lib/admin/tax-report.ts).
  */
 
 import { customRangeBounds, denverDateString, isIsoDate } from "./sales-stats";
+import type { RefundTiming } from "./tax-report";
 
 export type TaxPeriod =
   | { type: "month"; year: number; month: number }
@@ -86,6 +90,13 @@ export function parseTaxPeriod(params: Params | URLSearchParams, now: Date = new
   return lastMonth(now);
 }
 
+/** "refund" when the address asks for refunds in the dates they were made. */
+export function parseRefundTiming(params: Params | URLSearchParams): RefundTiming {
+  const value =
+    params instanceof URLSearchParams ? params.get("refunds") : first(params.refunds);
+  return value === "made" ? "refund" : "paid";
+}
+
 /** The value for ?period= (custom ranges also need from and to). */
 export function periodValue(p: TaxPeriod): string {
   if (p.type === "month") return `${p.year}-${pad(p.month)}`;
@@ -93,12 +104,13 @@ export function periodValue(p: TaxPeriod): string {
   return "custom";
 }
 
-export function periodQuery(p: TaxPeriod): string {
+export function periodQuery(p: TaxPeriod, timing: RefundTiming = "paid"): string {
   const q = new URLSearchParams({ period: periodValue(p) });
   if (p.type === "custom") {
     q.set("from", p.from);
     q.set("to", p.to);
   }
+  if (timing === "refund") q.set("refunds", "made");
   return `?${q.toString()}`;
 }
 

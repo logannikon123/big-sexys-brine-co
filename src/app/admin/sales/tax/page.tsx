@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DemoBanner } from "@/components/admin/orders/order-badges";
 import { isOrdersDemo } from "@/app/admin/orders/order-data";
 import { TaxCsvLink, TaxPeriodPicker, TaxReportView } from "@/components/admin/sales/tax-report";
-import { parseTaxPeriod, periodLabel } from "@/lib/admin/tax-report-filters";
+import { parseRefundTiming, parseTaxPeriod, periodLabel } from "@/lib/admin/tax-report-filters";
 import { loadTaxReport } from "@/lib/admin/tax-report-data";
 
 export default async function AdminTaxReportPage({
@@ -14,8 +14,10 @@ export default async function AdminTaxReportPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   await requireAuth();
-  const period = parseTaxPeriod(await searchParams);
-  const { report, error } = await loadTaxReport(period);
+  const params = await searchParams;
+  const period = parseTaxPeriod(params);
+  const timing = parseRefundTiming(params);
+  const { report, error } = await loadTaxReport(period, timing);
 
   return (
     // Extra room on phones so the menu button doesn't cover the title.
@@ -38,11 +40,11 @@ export default async function AdminTaxReportPage({
               Square&apos;s live system. Test orders never count.
             </p>
           </div>
-          <TaxCsvLink period={period} />
+          <TaxCsvLink period={period} timing={timing} />
         </div>
       </div>
 
-      <TaxPeriodPicker period={period} />
+      <TaxPeriodPicker period={period} timing={timing} />
 
       {error || !report ? (
         <Card>

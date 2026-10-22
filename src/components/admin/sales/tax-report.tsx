@@ -14,6 +14,7 @@ import {
 import { kindLabel } from "@/lib/food-tax-rates";
 import { denverDateString } from "@/lib/admin/sales-stats";
 import type {
+  RefundTiming,
   TaxReport,
   TaxReportGroup,
   TaxReportNote,
@@ -53,8 +54,54 @@ function orders(count: number): string {
 
 /* ---------- Picking the dates ---------- */
 
+/** Less refunds, under a number that already has them taken off. */
+function RefundedNote({ cents }: { cents: number }) {
+  if (cents <= 0) return null;
+  return (
+    <span className="block text-xs text-muted-foreground">after {formatPrice(cents)} refunded</span>
+  );
+}
+
+/** Which dates a refund counts in. Keeps the dates as they are. */
+function RefundTimingPicker({ period, timing }: { period: TaxPeriod; timing: RefundTiming }) {
+  const choices: { label: string; timing: RefundTiming }[] = [
+    { label: "Refunds in the order's month", timing: "paid" },
+    { label: "Refunds in the month made", timing: "refund" },
+  ];
+  return (
+    <nav aria-label="Which month refunds count in" className="space-y-2">
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {choices.map((c) => {
+          const on = c.timing === timing;
+          return (
+            <Link
+              key={c.timing}
+              href={`${PATH}${periodQuery(period, c.timing)}`}
+              aria-current={on ? "page" : undefined}
+              className={cn(PILL, on ? PILL_ON : PILL_OFF)}
+            >
+              {c.label}
+            </Link>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {timing === "paid"
+          ? "A refund comes off the month its order was paid, so a month you already filed can change. Ask your accountant which way to file."
+          : "A refund comes off the month it was made, and each order counts as a sale in the month it was paid. A month you already filed never changes. Ask your accountant which way to file."}
+      </p>
+    </nav>
+  );
+}
+
 /** Quick choices, a month or quarter picker and a custom range. No browser code. */
-export function TaxPeriodPicker({ period }: { period: TaxPeriod }) {
+export function TaxPeriodPicker({
+  period,
+  timing = "paid",
+}: {
+  period: TaxPeriod;
+  timing?: RefundTiming;
+}) {
   const quick: { label: string; period: TaxPeriod }[] = [
     { label: "Last month", period: lastMonth() },
     { label: "This month", period: thisMonth() },
@@ -74,7 +121,7 @@ export function TaxPeriodPicker({ period }: { period: TaxPeriod }) {
           return (
             <Link
               key={q.label}
-              href={`${PATH}${periodQuery(q.period)}`}
+              href={`${PATH}${periodQuery(q.period, timing)}`}
               aria-current={on ? "page" : undefined}
               className={cn(PILL, on ? PILL_ON : PILL_OFF)}
             >
@@ -94,6 +141,7 @@ export function TaxPeriodPicker({ period }: { period: TaxPeriod }) {
             custom ? "border-border" : "border-brand-orange"
           )}
         >
+          {timing === "refund" && <input type="hidden" name="refunds" value="made" />}
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             Month or quarter
             <select
@@ -132,6 +180,7 @@ export function TaxPeriodPicker({ period }: { period: TaxPeriod }) {
           )}
         >
           <input type="hidden" name="period" value="custom" />
+          {timing === "refund" && <input type="hidden" name="refunds" value="made" />}
           <label className="flex flex-col gap-1 text-xs text-muted-foreground">
             From
             <input
@@ -158,14 +207,22 @@ export function TaxPeriodPicker({ period }: { period: TaxPeriod }) {
           </button>
         </form>
       </div>
+
+      <RefundTimingPicker period={period} timing={timing} />
     </div>
   );
 }
 
-export function TaxCsvLink({ period }: { period: TaxPeriod }) {
+export function TaxCsvLink({
+  period,
+  timing = "paid",
+}: {
+  period: TaxPeriod;
+  timing?: RefundTiming;
+}) {
   return (
     <a
-      href={`${PATH}/export${periodQuery(period)}`}
+      href={`${PATH}/export${periodQuery(period, timing)}`}
       download
       className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-border px-3 text-sm font-medium hover:bg-muted"
     >
@@ -243,9 +300,11 @@ function PlaceTable({
                   <TableCell className="text-right tabular-nums">{l.orders}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {formatPrice(l.taxableCents)}
+                    <RefundedNote cents={l.refundTaxableCents} />
                   </TableCell>
                   <TableCell className="pr-4 text-right tabular-nums">
                     {formatPrice(l.taxCents)}
+                    <RefundedNote cents={l.refundTaxCents} />
                   </TableCell>
                 </TableRow>
               ))}
@@ -289,9 +348,13 @@ function TextLineTable({ lines, showTax }: { lines: TaxTextLine[]; showTax: bool
             <TableCell className="text-right tabular-nums">{l.orders}</TableCell>
             <TableCell className={cn("text-right tabular-nums", !showTax && "pr-4")}>
               {formatPrice(l.jarSalesCents)}
+              <RefundedNote cents={l.refundJarsCents} />
             </TableCell>
             {showTax && (
-              <TableCell className="pr-4 text-right tabular-nums">{formatPrice(l.taxCents)}</TableCell>
+              <TableCell className="pr-4 text-right tabular-nums">
+                {formatPrice(l.taxCents)}
+                <RefundedNote cents={l.refundTaxCents} />
+              </TableCell>
             )}
           </TableRow>
         ))}
@@ -312,7 +375,10 @@ function NoteLine({ label, note, after }: { label: string; note: TaxReportNote; 
 }
 
 export function TaxReportView({ report, period }: { report: TaxReport; period: TaxPeriod }) {
-  const nothing = report.orders === 0;
+  const nothing = report.orders === 0 && report.refundsTaken.refunds === 0;
+  const byPaid = report.refundTiming === "paid";
+  const taken = report.refundsTaken;
+  const unsplit = report.unsplitRefunds;
   return (
     <div className="space-y-6">
       {!report.partsAvailable && (
@@ -341,12 +407,20 @@ export function TaxReportView({ report, period }: { report: TaxReport; period: T
         <Tile
           label="Jar sales"
           value={formatPrice(report.jarSalesCents)}
-          note="Jar prices only. Fees and tax aren't in this number."
+          note={
+            report.refundsTaken.jarsCents > 0
+              ? `Jar prices only, after ${formatPrice(report.refundsTaken.jarsCents)} of refunded jars. Fees and tax aren't in this number.`
+              : "Jar prices only. Fees and tax aren't in this number."
+          }
         />
         <Tile
           label="Local tax collected"
           value={formatPrice(report.taxCents)}
-          note="City and county tax on food, from every order."
+          note={
+            report.refundsTaken.taxCents > 0
+              ? `City and county tax on food, after ${formatPrice(report.refundsTaken.taxCents)} of refunded tax.`
+              : "City and county tax on food, from every order."
+          }
         />
       </section>
 
@@ -382,7 +456,7 @@ export function TaxReportView({ report, period }: { report: TaxReport; period: T
             />
           )}
 
-          {report.beforeSplit.orders > 0 && (
+          {report.beforeSplit.lines.length > 0 && (
             <Card id="before-split" className="scroll-mt-6 gap-4">
               <CardHeader>
                 <CardTitle className="text-lg">
@@ -405,12 +479,12 @@ export function TaxReportView({ report, period }: { report: TaxReport; period: T
             <CardHeader>
               <CardTitle className="text-lg">Paid 0% because no rate was on file</CardTitle>
               <p className="mt-1 text-sm text-muted-foreground">
-                {report.noRate.orders === 0
+                {report.noRate.lines.length === 0
                   ? "None in these dates."
                   : `${orders(report.noRate.orders)}, ${formatPrice(report.noRate.jarSalesCents)} of jars. Checkout had no confirmed rate for these places, so it charged no local tax.`}
               </p>
             </CardHeader>
-            {report.noRate.orders > 0 && (
+            {report.noRate.lines.length > 0 && (
               <CardContent className="px-0 sm:px-2">
                 <TextLineTable lines={report.noRate.lines} showTax={false} />
               </CardContent>
@@ -419,42 +493,66 @@ export function TaxReportView({ report, period }: { report: TaxReport; period: T
         </>
       )}
 
-      <Card className="gap-3">
+      <Card id="refunds" className="scroll-mt-6 gap-3">
         <CardHeader>
           <CardTitle className="text-lg">Refunds</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
-          {report.partialRefunds.orders +
+          {taken.refunds +
+            unsplit.orders +
             report.fullRefunds.orders +
             report.cancelledAfterPayment.orders ===
           0 ? (
-            <p>No refunds or cancellations on orders paid in these dates.</p>
+            <p>
+              {byPaid
+                ? "No refunds or cancellations on orders paid in these dates."
+                : "No refunds made in these dates, and no orders paid in these dates were refunded or cancelled."}
+            </p>
           ) : (
             <ul className="list-disc space-y-2 pl-5">
+              {taken.refunds > 0 && (
+                <li>
+                  <span className="font-medium text-foreground">Taken off the lines above:</span>{" "}
+                  {taken.refunds === 1 ? "1 refund" : `${taken.refunds} refunds`} on order #
+                  {taken.orderNumbers.join(", #")}, {formatPrice(taken.jarsCents)} of jars and{" "}
+                  {formatPrice(taken.taxCents)} of tax. Each place&apos;s numbers are already
+                  less these refunds.
+                </li>
+              )}
+              {unsplit.orders > 0 && (
+                <li>
+                  <span className="font-medium text-foreground">Refunds to check:</span>{" "}
+                  {orders(unsplit.orders)} (#{unsplit.orderNumbers.join(", #")}),{" "}
+                  {formatPrice(unsplit.refundedCents)} given back. Still counted in full above,
+                  because nobody has said what these refunds were for (or the answer was
+                  &quot;Not sure&quot;). Open each order and pick what the refund was for, and
+                  the report takes it off.
+                </li>
+              )}
               <NoteLine
                 label="Refunded in full"
                 note={report.fullRefunds}
-                after="Left out of the numbers above."
+                after={
+                  byPaid
+                    ? "Left out of the numbers above."
+                    : "Counted as sales above. Their refunds come off in the month they were made."
+                }
               />
               <NoteLine
                 label="Cancelled after payment"
                 note={report.cancelledAfterPayment}
-                after="Left out of the numbers above. Check in Square that the money went back."
+                after={
+                  byPaid
+                    ? "Left out of the numbers above. Check in Square that the money went back."
+                    : "Counted as sales above. Their refunds come off in the month they were made. Check in Square that the money went back."
+                }
               />
-              {report.partialRefunds.orders > 0 && (
-                <li>
-                  <span className="font-medium text-foreground">Partly refunded:</span>{" "}
-                  {orders(report.partialRefunds.orders)} (#
-                  {report.partialRefunds.orderNumbers.join(", #")}),{" "}
-                  {formatPrice(report.partialRefunds.refundedCents)} given back. Still counted in
-                  full above, because the site doesn&apos;t yet record how much of a partial refund
-                  was tax.
-                </li>
-              )}
             </ul>
           )}
           <p>
-            Refunds are counted against the order&apos;s paid date, not the day of the refund.
+            {byPaid
+              ? "Refunds are counted against the order's paid date, not the day of the refund."
+              : "Refunds are counted in the dates they were made, not the order's paid date."}
           </p>
         </CardContent>
       </Card>

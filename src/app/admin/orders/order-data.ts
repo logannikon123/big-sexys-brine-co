@@ -7,7 +7,13 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
-import type { Order, OrderEmail, OrderItem, OrderRefund } from "@/types/orders";
+import type {
+  Order,
+  OrderEmail,
+  OrderItem,
+  OrderRefund,
+  OrderTaxPart,
+} from "@/types/orders";
 import {
   OPEN_STATUSES,
   TODO_COMPLETED_LIMIT,
@@ -139,6 +145,8 @@ export interface OrderWithItems {
   refunds: OrderRefund[];
   /** Emails sent to the customer after the receipt, oldest first. */
   emails: OrderEmail[];
+  /** The order's tax split by city and county. Empty for older orders. */
+  taxParts: OrderTaxPart[];
 }
 
 /** One order with its jars, refunds and emails, or null when there is no such order. */
@@ -146,13 +154,13 @@ export async function loadOrder(id: string): Promise<OrderWithItems | null> {
   if (isOrdersDemo()) {
     const { DEMO_ORDERS } = await import("./demo-orders");
     const demo = DEMO_ORDERS.find((d) => d.order.id === id);
-    return demo ? { refunds: [], emails: [], ...demo } : null;
+    return demo ? { refunds: [], emails: [], taxParts: [], ...demo } : null;
   }
 
   if (!isOrderId(id)) return null;
 
   const supabase = await createClient();
-  const [orderResult, itemsResult, refundsResult, emailsResult] =
+  const [orderResult, itemsResult, refundsResult, emailsResult, partsResult] =
     await Promise.all([
       supabase.from("orders").select("*").eq("id", id).maybeSingle(),
       supabase
@@ -170,9 +178,14 @@ export async function loadOrder(id: string): Promise<OrderWithItems | null> {
         .select("*")
         .eq("order_id", id)
         .order("created_at", { ascending: true }),
+      supabase
+        .from("order_tax_parts")
+        .select("id, order_id, kind, name, collected_by, rate_bps, taxable_cents, tax_cents")
+        .eq("order_id", id)
+        .order("id", { ascending: true }),
     ]);
 
-  const failed = [orderResult, itemsResult, refundsResult, emailsResult].find(
+  const failed = [orderResult, itemsResult, refundsResult, emailsResult, partsResult].find(
     (r) => r.error
   );
   if (failed?.error) {
@@ -184,8 +197,13 @@ export async function loadOrder(id: string): Promise<OrderWithItems | null> {
   return {
     order: orderResult.data as Order,
     items: (itemsResult.data ?? []) as OrderItem[],
-    refunds: (refundsResult.data ?? []) as OrderRefund[],
+    // refund_for is missing until its migration is pushed: treat as no answer.
+    refunds: ((refundsResult.data ?? []) as OrderRefund[]).map((r) => ({
+      ...r,
+      refund_for: r.refund_for ?? null,
+    })),
     emails: (emailsResult.data ?? []) as OrderEmail[],
+    taxParts: (partsResult.data ?? []) as OrderTaxPart[],
   };
 }
 
