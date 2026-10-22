@@ -46,7 +46,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const today = denverDateString(new Date().toISOString());
   const name = `big-sexys-tax-${periodFileTag(period)}-${today}.csv`;
-  return new Response(BOM + taxReportCsv(report, periodLabel(period)), {
+  return new Response(BOM + taxReportCsv(report, periodLabel(period), today), {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${name}"`,

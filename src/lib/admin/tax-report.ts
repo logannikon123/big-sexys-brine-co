@@ -449,3 +449,13 @@ export function computeTaxReport(
     splitMismatches,
   };
 }
+
+/** Why a report with no orders counted is empty, in one sentence. */
+export function emptyReason(report: TaxReport): string {
+  const leftOut = report.fullRefunds.orders + report.cancelledAfterPayment.orders;
+  if (leftOut === 0) {
+    return "No orders were paid in these dates, so there is no local food tax to report.";
+  }
+  const count = leftOut === 1 ? "The one order" : `All ${leftOut} orders`;
+  return `${count} paid in these dates ${leftOut === 1 ? "was" : "were"} refunded in full or cancelled, so there is no local food tax to report.`;
+}
