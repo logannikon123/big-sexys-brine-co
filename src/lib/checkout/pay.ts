@@ -8,6 +8,7 @@ import { getSquareClient, squareEnvironment, squareLocationId } from "@/lib/squa
 import { getQuote, storeIsOpen, type Quote, type QuoteError } from "@/lib/checkout/quote";
 import { findSquarePayment, readSquareFailure, type SquareFailure } from "@/lib/checkout/square-payment";
 import type { PayInput } from "@/lib/checkout/schema";
+import { saveTaxParts } from "@/lib/checkout/tax-parts";
 import { formatPrice } from "@/lib/utils";
 
 /**
@@ -236,6 +237,7 @@ async function saveOrder(input: PayInput, quote: Quote): Promise<ExistingOrder |
     await supabase.from("orders").delete().eq("id", order.id);
     return null;
   }
+  await saveTaxParts(supabase, order.id, quote.taxParts);
   return order;
 }
 
