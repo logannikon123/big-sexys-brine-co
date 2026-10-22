@@ -4,6 +4,7 @@ import { unstable_cache } from "next/cache";
 import {
   BANNER_EVENT_COLUMNS,
   HOME_BANNER_COLUMNS,
+  readBannerRow,
   type BannerEvent,
   type BannerProduct,
   type HomeBannerData,
@@ -69,7 +70,7 @@ const _getHomeBannerUncached = async (): Promise<HomeBannerData | null> => {
     }));
 
     return {
-      settings,
+      settings: readBannerRow(settings),
       slides,
       linkProduct: one<BannerProduct>(link_product),
       linkEvent: one<BannerEvent>(link_event),

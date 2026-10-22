@@ -144,8 +144,10 @@ body.admin-toolbar-active header {
  * Home page banner glow (src/components/home/HomeBannerView.tsx).
  * A soft colored layer sits just behind the banner and slowly fades in and
  * out. Only its opacity changes, which is cheap for the browser to animate.
- * The banner sets --glow-size, --glow-alpha and --glow-speed from the admin
- * sliders, and data-glow picks the color.
+ * The banner sets --glow-size, --glow-alpha and --glow-speed (which may be a
+ * fraction, like 1.25s) from the admin sliders, and data-glow picks the
+ * color. For a custom color, data-glow is "custom" and the banner sets
+ * --glow-color itself.
  */
 .banner-glow {
   position: relative;

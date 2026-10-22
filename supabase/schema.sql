@@ -850,11 +850,36 @@ CREATE TABLE IF NOT EXISTS public.home_banner (
   glow_color TEXT NOT NULL DEFAULT 'orange_gold'
     CHECK (glow_color IN ('orange', 'gold', 'orange_gold')),
   glow_strength INTEGER NOT NULL DEFAULT 50 CHECK (glow_strength BETWEEN 0 AND 100),
-  glow_speed_seconds INTEGER NOT NULL DEFAULT 6 CHECK (glow_speed_seconds BETWEEN 2 AND 15),
+  glow_speed_seconds NUMERIC(4,2) NOT NULL DEFAULT 6
+    CHECK (glow_speed_seconds >= 0.5 AND glow_speed_seconds <= 15
+      AND (glow_speed_seconds * 4) = floor(glow_speed_seconds * 4)),
   autoplay BOOLEAN NOT NULL DEFAULT true,
   slide_seconds INTEGER NOT NULL DEFAULT 6 CHECK (slide_seconds BETWEEN 3 AND 15),
   height_px INTEGER NOT NULL DEFAULT 360 CHECK (height_px BETWEEN 200 AND 560),
   photo_darkness INTEGER NOT NULL DEFAULT 50 CHECK (photo_darkness BETWEEN 0 AND 80),
+  bg_color TEXT CHECK (bg_color IS NULL OR bg_color ~ '^#[0-9a-fA-F]{6}$'),
+  headline_color TEXT CHECK (headline_color IS NULL OR headline_color ~ '^#[0-9a-fA-F]{6}$'),
+  message_color TEXT CHECK (message_color IS NULL OR message_color ~ '^#[0-9a-fA-F]{6}$'),
+  button_color TEXT CHECK (button_color IS NULL OR button_color ~ '^#[0-9a-fA-F]{6}$'),
+  button_text_color TEXT
+    CHECK (button_text_color IS NULL OR button_text_color ~ '^#[0-9a-fA-F]{6}$'),
+  event_bg_color TEXT CHECK (event_bg_color IS NULL OR event_bg_color ~ '^#[0-9a-fA-F]{6}$'),
+  event_text_color TEXT
+    CHECK (event_text_color IS NULL OR event_text_color ~ '^#[0-9a-fA-F]{6}$'),
+  glow_custom_color TEXT
+    CHECK (glow_custom_color IS NULL OR glow_custom_color ~ '^#[0-9a-fA-F]{6}$'),
+  caption_color TEXT CHECK (caption_color IS NULL OR caption_color ~ '^#[0-9a-fA-F]{6}$'),
+  border_color TEXT CHECK (border_color IS NULL OR border_color ~ '^#[0-9a-fA-F]{6}$'),
+  corner_radius_px INTEGER NOT NULL DEFAULT 18 CHECK (corner_radius_px BETWEEN 0 AND 32),
+  border_style TEXT NOT NULL DEFAULT 'theme'
+    CHECK (border_style IN ('theme', 'none', 'thin', 'thick')),
+  headline_size_pct INTEGER NOT NULL DEFAULT 100
+    CHECK (headline_size_pct BETWEEN 75 AND 150 AND headline_size_pct % 5 = 0),
+  button_shape TEXT NOT NULL DEFAULT 'pill'
+    CHECK (button_shape IN ('pill', 'rounded', 'square')),
+  button_style TEXT NOT NULL DEFAULT 'filled' CHECK (button_style IN ('filled', 'outline')),
+  caption_position TEXT NOT NULL DEFAULT 'top_left'
+    CHECK (caption_position IN ('top_left', 'top_right', 'bottom_left', 'bottom_right')),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

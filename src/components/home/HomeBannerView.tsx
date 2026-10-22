@@ -27,6 +27,10 @@ import {
 import { cn } from "@/lib/utils";
 import {
   THEME_CLASSES,
+  THEME_COLORS,
+  readableTextOn,
+  type BannerButtonShape,
+  type BannerCaptionPosition,
   type ResolvedBanner,
   type ResolvedLink,
 } from "@/lib/home-banner";
@@ -169,15 +173,44 @@ function useBannerCarousel(slideCount: number, autoplay: boolean, slideSeconds: 
 type Carousel = ReturnType<typeof useBannerCarousel>[1];
 type CarouselRef = ReturnType<typeof useBannerCarousel>[0];
 
+// Class names are written out in full so Tailwind can find them.
+const BUTTON_SHAPE_CLASSES: Record<BannerButtonShape, string> = {
+  pill: "rounded-full",
+  rounded: "rounded-lg",
+  square: "rounded-none",
+};
+
+const CAPTION_CLASSES: Record<BannerCaptionPosition, string> = {
+  top_left: "left-3 top-3",
+  top_right: "right-3 top-3",
+  bottom_left: "left-3 bottom-3",
+  bottom_right: "right-3 bottom-3",
+};
+
+// When the photo buttons sit at the bottom of the photo, bottom captions
+// move up above them.
+const CAPTION_ABOVE_CONTROLS_CLASSES: Record<BannerCaptionPosition, string> = {
+  ...CAPTION_CLASSES,
+  bottom_left: "left-3 bottom-16",
+  bottom_right: "right-3 bottom-16",
+};
+
+/** A caption's or the photo buttons' custom box color, with readable text. */
+function pillStyle(color: string | null): CSSProperties | undefined {
+  return color ? { background: color, color: readableTextOn(color) } : undefined;
+}
+
 /** A link that opens other sites in a new tab, or only reports in the preview. */
 function BannerLink({
   link,
   className,
+  style,
   children,
   onLinkClick,
 }: {
   link: ResolvedLink;
   className?: string;
+  style?: CSSProperties;
   children: ReactNode;
   onLinkClick?: (href: string) => void;
 }) {
@@ -186,6 +219,7 @@ function BannerLink({
       <a
         href={link.href}
         className={className}
+        style={style}
         onClick={(e) => {
           e.preventDefault();
           onLinkClick(link.href);
@@ -197,25 +231,44 @@ function BannerLink({
   }
   if (link.external) {
     return (
-      <a href={link.href} target="_blank" rel="noopener noreferrer" className={className}>
+      <a
+        href={link.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={className}
+        style={style}
+      >
         {children}
         <span className="sr-only"> (opens in a new tab)</span>
       </a>
     );
   }
   return (
-    <Link href={link.href} className={className}>
+    <Link href={link.href} className={className} style={style}>
       {children}
     </Link>
   );
 }
 
 /** Previous, a dot for each photo, next, and pause or play. */
-function SlideControls({ carousel, count }: { carousel: Carousel; count: number }) {
+function SlideControls({
+  carousel,
+  count,
+  color,
+}: {
+  carousel: Carousel;
+  count: number;
+  color: string | null;
+}) {
+  // Everything inside uses the text color (currentColor), so a custom box
+  // color only needs to set the text color to match.
   const round =
-    "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white";
+    "inline-flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-current/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current";
   return (
-    <div className="pointer-events-auto inline-flex items-center gap-0.5 rounded-full bg-black/60 px-1 py-0.5 text-white backdrop-blur-sm">
+    <div
+      className="pointer-events-auto inline-flex items-center gap-0.5 rounded-full bg-black/60 px-1 py-0.5 text-white backdrop-blur-sm"
+      style={pillStyle(color)}
+    >
       <button type="button" className={round} onClick={carousel.prev} aria-label="Previous photo">
         <ChevronLeft size={18} aria-hidden="true" />
       </button>
@@ -226,12 +279,14 @@ function SlideControls({ carousel, count }: { carousel: Carousel; count: number 
           onClick={() => carousel.goTo(i)}
           aria-label={`Show photo ${i + 1} of ${count}`}
           aria-current={i === carousel.current ? "true" : undefined}
-          className="group inline-flex h-6 w-4 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          className="group inline-flex h-6 w-4 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current"
         >
           <span
             className={cn(
               "block h-2 rounded-full transition-all",
-              i === carousel.current ? "w-3 bg-white" : "w-2 bg-white/50 group-hover:bg-white/80"
+              i === carousel.current
+                ? "w-3 bg-current"
+                : "w-2 bg-current/50 group-hover:bg-current/80"
             )}
           />
         </button>
@@ -263,6 +318,7 @@ function SlideTrack({
   carousel,
   sizes,
   preview,
+  captionClass,
   onLinkClick,
 }: {
   banner: ResolvedBanner;
@@ -270,9 +326,12 @@ function SlideTrack({
   carousel: Carousel;
   sizes: string;
   preview: boolean;
+  /** Where captions sit on the photo. */
+  captionClass: string;
   onLinkClick?: (href: string) => void;
 }) {
   const count = banner.slides.length;
+  const captionColor = banner.style.colors.caption;
   return (
     <div ref={emblaRef} className="h-full overflow-hidden">
       <div
@@ -300,13 +359,24 @@ function SlideTrack({
               className="object-cover"
             />
             {(slide.caption || slide.productLink) && (
-              <div className="absolute left-3 top-3 flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-2 rounded-lg bg-black/60 px-3 py-1.5 text-sm text-white backdrop-blur-sm">
+              <div
+                className={cn(
+                  "absolute flex max-w-[calc(100%-1.5rem)] flex-wrap items-center gap-x-2 rounded-lg bg-black/60 px-3 py-1.5 text-sm text-white backdrop-blur-sm",
+                  captionClass
+                )}
+                style={pillStyle(captionColor)}
+              >
                 {slide.caption && <span>{slide.caption}</span>}
                 {slide.productLink && (
                   <BannerLink
                     link={slide.productLink}
                     onLinkClick={onLinkClick}
-                    className="inline-flex items-center gap-1 rounded font-semibold text-brand-gold underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                    // Gold may not show up on a custom box color, so the link
+                    // takes the box's text color and an underline instead.
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded font-semibold underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-current",
+                      captionColor ? "underline" : "text-brand-gold hover:underline"
+                    )}
                   >
                     {slide.productLink.label}
                     <ArrowRight size={14} aria-hidden="true" />
@@ -332,8 +402,19 @@ function BannerWords({
   onLinkClick?: (href: string) => void;
 }) {
   const { style, link, event } = banner;
+  const { colors } = style;
   const theme = THEME_CLASSES[style.theme];
   const center = style.textAlign === "center";
+  const outline = style.buttonStyle === "outline";
+
+  // Custom colors go on as inline styles, on top of the theme's classes. An
+  // outline button draws its edge and words in the button color.
+  const buttonStyle: CSSProperties = outline
+    ? { color: colors.button ?? THEME_COLORS[style.theme].button }
+    : {
+        ...(colors.button && { background: colors.button }),
+        ...(colors.buttonText && { color: colors.buttonText }),
+      };
 
   return (
     <div
@@ -344,11 +425,14 @@ function BannerWords({
     >
       {banner.headline && (
         <h2
+          // The usual size is text-3xl (1.875rem), or text-4xl (2.25rem) on a
+          // wide banner, times the headline size setting (--headline-scale).
           className={cn(
-            "text-3xl font-bold leading-tight @3xl:text-4xl",
+            "text-[length:calc(1.875rem*var(--headline-scale,1))] font-bold leading-tight @3xl:text-[length:calc(2.25rem*var(--headline-scale,1))]",
             style.headlineFont === "display" ? "font-display" : "font-sans",
             overPhotos ? "text-brand-cream" : theme.headline
           )}
+          style={colors.headline ? { color: colors.headline } : undefined}
         >
           {banner.headline}
         </h2>
@@ -359,6 +443,7 @@ function BannerWords({
             "max-w-prose whitespace-pre-line text-base leading-relaxed @3xl:text-lg",
             overPhotos ? "text-brand-cream/90" : theme.message
           )}
+          style={colors.message ? { color: colors.message } : undefined}
         >
           {banner.message}
         </p>
@@ -368,11 +453,14 @@ function BannerWords({
           link={link}
           onLinkClick={onLinkClick}
           className={cn(
-            "pointer-events-auto inline-flex min-h-11 items-center gap-2 rounded-full px-6 py-3 font-semibold transition-all motion-safe:hover:scale-105",
+            "pointer-events-auto inline-flex min-h-11 items-center gap-2 px-6 py-3 font-semibold transition-all motion-safe:hover:scale-105",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
-            theme.button,
+            BUTTON_SHAPE_CLASSES[style.buttonShape],
+            outline ? "border-2 border-current bg-transparent hover:bg-current/10" : theme.button,
+            !outline && colors.button && "hover:brightness-110",
             theme.ring
           )}
+          style={buttonStyle}
         >
           {link.label}
           <ArrowRight size={18} aria-hidden="true" />
@@ -386,6 +474,10 @@ function BannerWords({
               ? "border-white/15 bg-black/45 text-brand-cream backdrop-blur-sm"
               : theme.eventCard
           )}
+          style={{
+            ...(colors.eventBackground && { background: colors.eventBackground }),
+            ...(colors.eventText && { color: colors.eventText }),
+          }}
         >
           <p className="text-xs font-semibold uppercase tracking-wider opacity-80">
             {event.heading}
@@ -415,8 +507,11 @@ function BannerWords({
             className={cn(
               "mt-2 inline-flex items-center gap-1 rounded py-1 font-semibold focus-visible:outline-none focus-visible:ring-2",
               overPhotos ? "text-brand-gold hover:text-brand-cream focus-visible:ring-white" : theme.eventLink,
-              !overPhotos && "focus-visible:ring-current"
+              !overPhotos && "focus-visible:ring-current",
+              colors.eventText && "underline hover:no-underline"
             )}
+            // A custom card text color covers the link too, so it stays readable.
+            style={colors.eventText ? { color: colors.eventText } : undefined}
           >
             See details
             <span className="sr-only"> for {event.name}</span>
@@ -437,15 +532,35 @@ export function HomeBannerView({ banner, onLinkClick }: HomeBannerViewProps) {
   const overPhotos = style.layout === "message_over" && count > 0;
 
   // The sliders reach the page as CSS variables (see .banner-glow in
-  // src/app/globals.css).
+  // src/app/globals.css). CSS takes fractions of a second, like 1.25s.
   const variables = {
     "--banner-h": `${style.heightPx}px`,
+    "--headline-scale": style.headlineScale,
     ...(style.glow && {
       "--glow-size": `${Math.round(8 + style.glow.strength * 0.4)}px`,
       "--glow-alpha": `${Math.round(25 + style.glow.strength * 0.6)}%`,
       "--glow-speed": `${style.glow.speedSeconds}s`,
     }),
   } as CSSProperties;
+
+  const radius = `${style.cornerRadiusPx}px`;
+  // A custom glow color goes on the glow box itself, because .banner-glow
+  // sets its own --glow-color there.
+  const glowStyle = {
+    borderRadius: radius,
+    ...(style.glow?.customColor && { "--glow-color": style.glow.customColor }),
+  } as CSSProperties;
+  const boxStyle: CSSProperties = {
+    borderRadius: radius,
+    // "background" also clears the Ember theme's gradient.
+    ...(style.colors.background && { background: style.colors.background }),
+    ...(style.border && {
+      borderStyle: "solid",
+      borderWidth: style.border.widthPx,
+      borderColor: style.border.color,
+    }),
+    ...(style.noBorder && { borderWidth: 0 }),
+  };
 
   let body: ReactNode;
   if (count === 0) {
@@ -471,6 +586,13 @@ export function HomeBannerView({ banner, onLinkClick }: HomeBannerViewProps) {
             carousel={carousel}
             sizes="(max-width: 1280px) 100vw, 1280px"
             preview={preview}
+            // The words cover the bottom of the photos here, so captions
+            // stay at the top, on the side picked.
+            captionClass={
+              style.captionPosition.endsWith("right")
+                ? CAPTION_CLASSES.top_right
+                : CAPTION_CLASSES.top_left
+            }
             onLinkClick={onLinkClick}
           />
         </div>
@@ -492,7 +614,7 @@ export function HomeBannerView({ banner, onLinkClick }: HomeBannerViewProps) {
           <BannerWords banner={banner} overPhotos onLinkClick={onLinkClick} />
           {carousel.several && (
             <div className="self-end">
-              <SlideControls carousel={carousel} count={count} />
+              <SlideControls carousel={carousel} count={count} color={style.colors.caption} />
             </div>
           )}
         </div>
@@ -517,12 +639,17 @@ export function HomeBannerView({ banner, onLinkClick }: HomeBannerViewProps) {
               carousel={carousel}
               sizes="(max-width: 768px) 100vw, 640px"
               preview={preview}
+              captionClass={
+                (carousel.several ? CAPTION_ABOVE_CONTROLS_CLASSES : CAPTION_CLASSES)[
+                  style.captionPosition
+                ]
+              }
               onLinkClick={onLinkClick}
             />
           </div>
           {carousel.several && (
             <div className="absolute bottom-3 right-3">
-              <SlideControls carousel={carousel} count={count} />
+              <SlideControls carousel={carousel} count={count} color={style.colors.caption} />
             </div>
           )}
         </div>
@@ -536,11 +663,14 @@ export function HomeBannerView({ banner, onLinkClick }: HomeBannerViewProps) {
   return (
     <section aria-label="News from Big Sexy's" className="@container" style={variables}>
       <div
-        className={cn("rounded-2xl", style.glow && "banner-glow")}
-        data-glow={style.glow?.color}
+        className={cn(style.glow && "banner-glow")}
+        data-glow={style.glow?.customColor ? "custom" : style.glow?.color}
+        style={glowStyle}
         {...carousel.handlers}
       >
-        <div className={cn("relative overflow-hidden rounded-2xl", theme.box)}>{body}</div>
+        <div className={cn("relative overflow-hidden", theme.box)} style={boxStyle}>
+          {body}
+        </div>
       </div>
     </section>
   );

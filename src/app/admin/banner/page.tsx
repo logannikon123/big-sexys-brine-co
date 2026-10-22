@@ -11,6 +11,7 @@ import {
   BANNER_EVENT_COLUMNS,
   HOME_BANNER_COLUMNS,
   isEventUpcoming,
+  readBannerRow,
   type BannerEvent,
   type BannerProduct,
   type HomeBannerSettings,
@@ -38,8 +39,10 @@ export default async function AdminBannerPage() {
 
   // The tables arrive with the home banner database update. Until then both
   // reads fail.
-  const settings =
-    !rowError && !slideError && row ? (row as unknown as HomeBannerSettings) : null;
+  const settings: HomeBannerSettings | null =
+    !rowError && !slideError && row
+      ? readBannerRow(row as unknown as HomeBannerSettings)
+      : null;
 
   // Upcoming events, plus any event the banner already links to, even if it
   // has passed, so the dropdowns can still show the saved choice.

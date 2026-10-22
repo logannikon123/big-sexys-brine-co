@@ -30,14 +30,22 @@ import { HomeBannerView } from "@/components/home/HomeBannerView";
 import { BannerSlidesManager } from "@/components/admin/banner-slides-manager";
 import { updateHomeBanner } from "@/app/admin/banner/actions";
 import {
+  BANNER_BORDER_STYLES,
+  BANNER_BUTTON_SHAPES,
+  BANNER_BUTTON_STYLES,
+  BANNER_CAPTION_POSITIONS,
   BANNER_HEADLINE_FONTS,
   BANNER_LAYOUTS,
   BANNER_TEXT_ALIGNS,
   BANNER_THEMES,
+  BRAND_SWATCHES,
   DEFAULT_BANNER_STYLE,
   GLOW_COLORS,
+  GLOW_HEX,
   LINK_TYPES,
+  THEME_COLORS,
   bannerReadyProblem,
+  contrastRatio,
   eventOptionLabel,
   hasBannerContent,
   homeBannerSchema,
@@ -196,6 +204,108 @@ function CountedField({
 }
 
 /**
+ * One custom color: quick brand swatches, the browser's own color picker for
+ * any color, and a button that goes back to the theme's color (null).
+ */
+function ColorField({
+  id,
+  label,
+  value,
+  fallback,
+  onChange,
+  clearLabel = "Theme color",
+  help,
+}: {
+  id: string;
+  label: string;
+  value: string | null;
+  /** What the picker shows while no color is chosen. */
+  fallback: string;
+  onChange: (value: string | null) => void;
+  clearLabel?: string;
+  help?: ReactNode;
+}) {
+  const current = value?.toLowerCase() ?? null;
+  return (
+    <div className="min-w-0 space-y-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <Label htmlFor={id}>{label}</Label>
+        <span className="shrink-0 text-xs text-muted-foreground">{current ?? clearLabel}</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5" role="group" aria-label={`${label}: brand colors`}>
+        {BRAND_SWATCHES.map((swatch) => (
+          <button
+            key={swatch.hex}
+            type="button"
+            onClick={() => onChange(swatch.hex)}
+            aria-pressed={current === swatch.hex}
+            aria-label={swatch.name}
+            title={swatch.name}
+            className={cn(
+              "h-6 w-6 rounded-full border border-white/25 shadow-sm transition-transform hover:scale-110",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              current === swatch.hex &&
+                "ring-2 ring-brand-orange ring-offset-2 ring-offset-background"
+            )}
+            style={{ background: swatch.hex }}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          id={id}
+          type="color"
+          value={current ?? fallback}
+          onChange={(e) => onChange(e.target.value.toLowerCase())}
+          title="Pick any color"
+          className="h-8 w-12 cursor-pointer rounded-md border border-input bg-transparent p-0.5"
+        />
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => onChange(null)}
+          disabled={current === null}
+        >
+          {clearLabel}
+        </Button>
+      </div>
+      {help}
+    </div>
+  );
+}
+
+/**
+ * Text needs a contrast of at least 4.5 to 1 against its background to be
+ * easy to read. Lists each pair of chosen colors that falls short. Only
+ * pairs where both colors are chosen are checked.
+ */
+function contrastWarnings(s: HomeBannerSettings): string[] {
+  const pairs: [string | null, string | null, string][] = [
+    [s.headline_color, s.bg_color, "The headline color and the banner background"],
+    [s.message_color, s.bg_color, "The message color and the banner background"],
+    s.button_style === "outline"
+      ? [s.button_color, s.bg_color, "The outline button color and the banner background"]
+      : [s.button_text_color, s.button_color, "The button text and button colors"],
+    [s.event_text_color, s.event_bg_color, "The event card text and background colors"],
+  ];
+  return pairs.flatMap(([text, background, what]) => {
+    if (!text || !background) return [];
+    const ratio = contrastRatio(text, background);
+    return ratio < 4.5
+      ? [
+          `${what} are too close to read easily (${ratio.toFixed(1)} to 1). Aim for 4.5 to 1 or more.`,
+        ]
+      : [];
+  });
+}
+
+/** "1.25 s per pulse". */
+function formatPulse(seconds: number): string {
+  return `${seconds} s per pulse`;
+}
+
+/**
  * Draws the banner at a real page width (a phone or a computer) and shrinks
  * the picture to fit the preview column, so it looks just as it will on the
  * site.
@@ -290,6 +400,9 @@ export function BannerEditor({
     { now, nextEvent }
   );
   const previewEmpty = !hasBannerContent(settings, slides.length);
+  const themeColors = THEME_COLORS[settings.theme];
+  const glowHex = settings.glow_custom_color ?? GLOW_HEX[settings.glow_color];
+  const lowContrast = contrastWarnings(settings);
   const status = bannerStatus(settings, slides.length, now);
 
   const handleSave = async () => {
@@ -702,6 +815,188 @@ export function BannerEditor({
                   ))}
                 </Select>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="banner_button_shape">Button shape</Label>
+                <Select
+                  id="banner_button_shape"
+                  value={settings.button_shape}
+                  onChange={(e) =>
+                    set("button_shape", e.target.value as HomeBannerSettings["button_shape"])
+                  }
+                >
+                  {BANNER_BUTTON_SHAPES.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="banner_button_style">Button style</Label>
+                <Select
+                  id="banner_button_style"
+                  value={settings.button_style}
+                  onChange={(e) =>
+                    set("button_style", e.target.value as HomeBannerSettings["button_style"])
+                  }
+                >
+                  {BANNER_BUTTON_STYLES.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="banner_caption_position">Photo caption position</Label>
+                <Select
+                  id="banner_caption_position"
+                  value={settings.caption_position}
+                  onChange={(e) =>
+                    set(
+                      "caption_position",
+                      e.target.value as HomeBannerSettings["caption_position"]
+                    )
+                  }
+                >
+                  {BANNER_CAPTION_POSITIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+                {settings.layout === "message_over" &&
+                  settings.caption_position.startsWith("bottom") && (
+                    <Help>
+                      With words on top of the photos, captions stay at the top
+                      so the words don&apos;t cover them.
+                    </Help>
+                  )}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="banner_border">Border</Label>
+                <Select
+                  id="banner_border"
+                  value={settings.border_style}
+                  onChange={(e) =>
+                    set("border_style", e.target.value as HomeBannerSettings["border_style"])
+                  }
+                >
+                  {BANNER_BORDER_STYLES.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+
+            {(settings.border_style === "thin" || settings.border_style === "thick") && (
+              <ColorField
+                id="banner_border_color"
+                label="Border color"
+                value={settings.border_color}
+                fallback={glowHex}
+                onChange={(v) => set("border_color", v)}
+                clearLabel="Glow color"
+              />
+            )}
+
+            <div className="space-y-4 rounded-md border border-border p-4">
+              <Range
+                id="banner_corners"
+                label="Corner roundness"
+                value={settings.corner_radius_px}
+                min={0}
+                max={32}
+                onChange={(v) => set("corner_radius_px", v)}
+                format={(v) => (v === 0 ? "Square" : `${v} px`)}
+              />
+              <Range
+                id="banner_headline_size"
+                label="Headline size"
+                value={settings.headline_size_pct}
+                min={75}
+                max={150}
+                step={5}
+                onChange={(v) => set("headline_size_pct", v)}
+                format={(v) => `${v}%`}
+                help="100% is the usual size."
+              />
+            </div>
+
+            <div className="@container space-y-4 rounded-md border border-border p-4">
+              <div className="space-y-1">
+                <h3 className="text-sm font-semibold">Colors</h3>
+                <Help>
+                  Each one starts on the theme&apos;s color. Tap a brand color,
+                  pick any color, or press &quot;Theme color&quot; to go back.
+                </Help>
+              </div>
+              <div className="grid gap-5 @md:grid-cols-2">
+                <ColorField
+                  id="banner_bg_color"
+                  label="Banner background"
+                  value={settings.bg_color}
+                  fallback={themeColors.background}
+                  onChange={(v) => set("bg_color", v)}
+                />
+                <ColorField
+                  id="banner_headline_color"
+                  label="Headline"
+                  value={settings.headline_color}
+                  fallback={themeColors.headline}
+                  onChange={(v) => set("headline_color", v)}
+                />
+                <ColorField
+                  id="banner_message_color"
+                  label="Message"
+                  value={settings.message_color}
+                  fallback={themeColors.message}
+                  onChange={(v) => set("message_color", v)}
+                />
+                <ColorField
+                  id="banner_button_color"
+                  label={settings.button_style === "outline" ? "Button outline and words" : "Button"}
+                  value={settings.button_color}
+                  fallback={themeColors.button}
+                  onChange={(v) => set("button_color", v)}
+                />
+                {settings.button_style === "filled" && (
+                  <ColorField
+                    id="banner_button_text_color"
+                    label="Button words"
+                    value={settings.button_text_color}
+                    fallback={themeColors.buttonText}
+                    onChange={(v) => set("button_text_color", v)}
+                  />
+                )}
+                <ColorField
+                  id="banner_event_bg_color"
+                  label="Event card background"
+                  value={settings.event_bg_color}
+                  fallback={themeColors.eventBackground}
+                  onChange={(v) => set("event_bg_color", v)}
+                />
+                <ColorField
+                  id="banner_event_text_color"
+                  label="Event card words"
+                  value={settings.event_text_color}
+                  fallback={themeColors.eventText}
+                  onChange={(v) => set("event_text_color", v)}
+                />
+                <ColorField
+                  id="banner_caption_color"
+                  label="Photo caption and photo buttons"
+                  value={settings.caption_color}
+                  fallback="#000000"
+                  onChange={(v) => set("caption_color", v)}
+                  help={<Help>The words switch to white or black to stay readable.</Help>}
+                />
+              </div>
+              {lowContrast.map((warning) => (
+                <Warning key={warning}>{warning}</Warning>
+              ))}
             </div>
 
             <div className="space-y-4 rounded-md border border-border p-4">
@@ -718,6 +1013,7 @@ export function BannerEditor({
                     <Select
                       id="banner_glow_color"
                       value={settings.glow_color}
+                      disabled={settings.glow_custom_color !== null}
                       onChange={(e) =>
                         set("glow_color", e.target.value as HomeBannerSettings["glow_color"])
                       }
@@ -729,6 +1025,14 @@ export function BannerEditor({
                       ))}
                     </Select>
                   </div>
+                  <ColorField
+                    id="banner_glow_custom_color"
+                    label="Or any glow color"
+                    value={settings.glow_custom_color}
+                    fallback={GLOW_HEX[settings.glow_color]}
+                    onChange={(v) => set("glow_custom_color", v)}
+                    clearLabel="Use the choice above"
+                  />
                   <Range
                     id="banner_glow_strength"
                     label="Glow strength"
@@ -740,12 +1044,14 @@ export function BannerEditor({
                   />
                   <Range
                     id="banner_glow_speed"
-                    label="One slow pulse takes"
+                    label="Glow pulse speed"
                     value={settings.glow_speed_seconds}
-                    min={2}
+                    min={0.5}
                     max={15}
+                    step={0.25}
                     onChange={(v) => set("glow_speed_seconds", v)}
-                    format={(v) => `${v} seconds`}
+                    format={formatPulse}
+                    help="Lower is faster."
                   />
                 </>
               )}
