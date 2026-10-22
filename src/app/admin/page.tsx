@@ -13,6 +13,7 @@ import {
 import Link from "next/link";
 import { ClearCacheButton } from "@/components/admin/clear-cache-button";
 import { countNewOrders } from "@/app/admin/orders/order-data";
+import { OwnerAlertsCard } from "@/components/admin/owner-alerts-card";
 
 export default async function AdminDashboardPage() {
   await requireAuth();
@@ -145,6 +146,8 @@ export default async function AdminDashboardPage() {
         </div>
         <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
       </Link>
+
+      <OwnerAlertsCard />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Upcoming Events */}

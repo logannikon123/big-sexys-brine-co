@@ -1,7 +1,8 @@
-// DRAFT for Jesse to review. This page is a plain-English starting point,
-// not legal advice. Check it (or have a lawyer check it) before the online
-// store opens. Keep it in step with the site: if you add a new service
-// (analytics, a mailing list), list it here.
+// Checked against the code in October 2026: every service the site sends
+// personal information to is listed below. This page is a plain-English
+// starting point, not legal advice. Keep it in step with the site: if you
+// add a new service (analytics, a mailing list), list it here. When the
+// wording changes, change TERMS_VERSION in src/lib/checkout/pay.ts too.
 import {
   POLICY_EMAIL,
   PolicyLink,
@@ -35,9 +36,13 @@ export default function PrivacyPage() {
       <PolicySection title="What we collect">
         <p>When you place an order, we collect:</p>
         <PolicyList>
-          <li>your name, email address and phone number</li>
-          <li>your delivery or shipping address, if you choose delivery or shipping</li>
+          <li>your name and email address, and your phone number and order notes if you give them</li>
+          <li>
+            your delivery or shipping address, if you choose delivery or
+            shipping, and where it sits on the map
+          </li>
           <li>what you ordered, what you paid and how you chose to get it</li>
+          <li>when you agreed to these policies</li>
         </PolicyList>
         <p>
           When you send us a message through the{" "}
@@ -52,7 +57,9 @@ export default function PrivacyPage() {
         <p>
           Square handles all card payments. You type your card details into
           Square&apos;s secure payment form, not ours, and we never see or
-          store your full card number.
+          store your full card number. Square sends us back the card brand,
+          the last four digits and a receipt link, and we keep those with your
+          order.
         </p>
       </PolicySection>
 
@@ -94,16 +101,45 @@ export default function PrivacyPage() {
         <PolicyList>
           <li>
             <strong className="text-brand-cream">Square</strong> takes card
-            payments.
+            payments. It gets your card details, your email address and the
+            amount. Its payment form may also collect details about your
+            device to help stop fraud.
           </li>
           <li>
-            <strong className="text-brand-cream">Supabase</strong> stores our
-            order records, contest entries and marketing email choices.
+            <strong className="text-brand-cream">The US Census Bureau</strong>{" "}
+            runs a free address lookup (its geocoder). For delivery and
+            shipping orders, we send it your street address to check it,
+            find it on the map, and learn its city and county, which set the
+            delivery distance and the local sales tax.
+          </li>
+          <li>
+            <strong className="text-brand-cream">OpenRouteService</strong>{" "}
+            works out the driving distance for local delivery. It gets only
+            two map points (our kitchen and your address), not your name.
+          </li>
+          <li>
+            <strong className="text-brand-cream">Supabase</strong> is our
+            database. It stores our order records, contest entries and
+            marketing email choices.
           </li>
           <li>
             <strong className="text-brand-cream">Resend</strong> sends our
-            emails: order emails to you, and messages from the contact and
-            contest forms to our inbox.
+            emails: order emails to you, order alerts to us, and messages from
+            the contact and contest forms to our inbox.
+          </li>
+          <li>
+            <strong className="text-brand-cream">Pushover</strong> sends a
+            phone alert to the owner when an order comes in. The alert gives
+            your name, the order number and total, how many jars, and how you
+            chose to get them.
+          </li>
+          <li>
+            <strong className="text-brand-cream">Google</strong> runs our
+            email inbox (Gmail), which holds the emails you send us. Mail to
+            any @bigsexysbrine.co address reaches it through{" "}
+            <strong className="text-brand-cream">ImprovMX</strong>, a mail
+            forwarding service. To plan a delivery, we may also look up your
+            address in Google Maps.
           </li>
           <li>
             <strong className="text-brand-cream">Vercel</strong> hosts the

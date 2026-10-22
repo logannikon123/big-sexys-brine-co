@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import type { FoodTaxKind } from "@/lib/food-tax-rates";
+import type { FoodTaxCollector, FoodTaxKind } from "@/lib/food-tax-rates";
 
 /**
  * Local sales tax on food for one delivery or shipping address.
@@ -47,6 +47,8 @@ export interface FoodTaxPart {
   /** The food rate in hundredths of a percent (0 when food is exempt). */
   rateBps: number;
   confirmed: boolean;
+  /** Who collects it: the state, the city itself, or nobody (null). */
+  collectedBy: FoodTaxCollector | null;
 }
 
 export type FoodTaxLookup =
@@ -81,6 +83,7 @@ interface FoodTaxRow {
   taxes_food: boolean;
   food_rate_bps: number;
   confirmed: boolean;
+  collected_by: FoodTaxCollector | null;
 }
 
 function toPart(row: FoodTaxRow): FoodTaxPart {
@@ -92,6 +95,7 @@ function toPart(row: FoodTaxRow): FoodTaxPart {
     taxesFood: row.taxes_food,
     rateBps: row.food_rate_bps,
     confirmed: row.confirmed,
+    collectedBy: row.collected_by,
   };
 }
 
@@ -115,7 +119,7 @@ export async function lookupFoodTax(
   const supabase = client ?? (await createClient());
   const { data, error } = await supabase
     .from("food_tax_rates")
-    .select("id, kind, name, census_geoid, taxes_food, food_rate_bps, confirmed")
+    .select("id, kind, name, census_geoid, taxes_food, food_rate_bps, confirmed, collected_by")
     .in("census_geoid", place ? [county, place] : [county]);
   if (error || !data) {
     return { status: "unknown", reason: "lookup_failed", maybeInDistrict };

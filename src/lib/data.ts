@@ -352,6 +352,14 @@ export type PublicStoreSettings = Pick<
   | "delivery_standard_hours"
   | "rush_fee_cents"
   | "shipping_states"
+  | "delivery_max_miles"
+  | "delivery_step_miles"
+  | "delivery_fee_per_step_cents"
+  | "free_delivery_enabled"
+  | "free_delivery_max_miles"
+  | "free_delivery_min_order_cents"
+  | "shipping_fallback_per_box_cents"
+  | "shipping_cushion_per_box_cents"
 >;
 
 const _getStoreSettingsUncached = async (): Promise<PublicStoreSettings | null> => {
@@ -360,11 +368,19 @@ const _getStoreSettingsUncached = async (): Promise<PublicStoreSettings | null> 
   const { data } = await supabase
     .from("store_settings")
     .select(
-      "orders_open, pickup_enabled, delivery_enabled, shipping_enabled, jars_per_box, packing_fee_per_box_cents, delivery_min_order_cents, delivery_standard_hours, rush_fee_cents, shipping_states"
+      "orders_open, pickup_enabled, delivery_enabled, shipping_enabled, jars_per_box, packing_fee_per_box_cents, delivery_min_order_cents, delivery_standard_hours, rush_fee_cents, shipping_states, delivery_max_miles, delivery_step_miles, delivery_fee_per_step_cents, free_delivery_enabled, free_delivery_max_miles, free_delivery_min_order_cents, shipping_fallback_per_box_cents, shipping_cushion_per_box_cents"
     )
     .eq("id", 1)
     .maybeSingle();
-  return (data as PublicStoreSettings | null) ?? null;
+  if (!data) return null;
+  // Postgres NUMERIC columns arrive as strings, like "24.0".
+  const milesOrNull = (value: unknown) => (value === null || value === undefined ? null : Number(value));
+  return {
+    ...data,
+    delivery_max_miles: Number(data.delivery_max_miles),
+    delivery_step_miles: Number(data.delivery_step_miles),
+    free_delivery_max_miles: milesOrNull(data.free_delivery_max_miles),
+  } as PublicStoreSettings;
 };
 
 /** Store settings, or null if they can't be read. Saving them in the admin clears this cache. */
