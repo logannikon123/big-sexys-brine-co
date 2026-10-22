@@ -37,7 +37,7 @@ import { formatPrice } from "@/lib/utils";
  */
 
 /** The version of the store terms the customer agrees to. Change it when /terms changes. */
-export const TERMS_VERSION = "2026-10 (terms, refunds, privacy)";
+export const TERMS_VERSION = "2026-10-21 (terms, refunds, privacy)";
 
 /** Statuses that mean the money was taken. */
 const PAID_STATUSES = new Set([
