@@ -1,6 +1,7 @@
 import "server-only";
 import { after } from "next/server";
 import type { Square } from "square";
+import { alertOwnerLater } from "@/lib/alerts";
 import { notifyOrderPaid } from "@/lib/orders/notify";
 import { recordMarketingOptIn } from "@/lib/marketing-server";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -35,7 +36,15 @@ import { formatPrice } from "@/lib/utils";
  * connection, a Square outage, a timeout), we ask Square for the payment.
  * If we still can't tell, the order stays "pending_payment" and the customer
  * is told not to pay again. The Square webhook has the final word.
+ *
+ * Failures that need Jesse (an order that couldn't be saved, a payment we
+ * can't confirm, Square out of reach) also alert Jesse (src/lib/alerts.ts)
+ * after the customer has their answer. Alerts name order numbers only.
  */
+
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://bigsexysbrine.co").trim().replace(/\/$/, "");
+/** A per-order alert goes out once: a week is as far back as the health check looks. */
+const ONCE_PER_ORDER_HOURS = 7 * 24;
 
 /** The version of the store terms the customer agrees to. Change it when /terms changes. */
 export const TERMS_VERSION = "2026-10-21 (terms, refunds, privacy)";
@@ -140,6 +149,13 @@ const SQUARE_UNREACHABLE = fail(
 /** We can't tell whether the card was charged. The order stays pending. */
 function unconfirmed(order: ExistingOrder, reason: string): PayError {
   console.error(`Pay: couldn't confirm the payment for order #${order.order_number} (${reason}). It stays pending.`);
+  alertOwnerLater({
+    key: `pay:unconfirmed:${order.order_number}`,
+    title: `Order #${order.order_number}: payment not confirmed`,
+    message: `Checkout couldn't tell whether Square charged the card for order #${order.order_number} (${reason}). The customer was told not to pay again and that we'll email them. Look the payment up in Square, then email the customer.`,
+    url: `${SITE_URL}/admin/orders/${order.id}`,
+    windowHours: ONCE_PER_ORDER_HOURS,
+  });
   return fail(
     "payment_unconfirmed",
     "We couldn't confirm your payment. Please don't pay again; we'll email you soon.",
@@ -156,6 +172,16 @@ async function findOrder(checkoutId: string): Promise<ExistingOrder | null> {
     .maybeSingle();
   if (error) throw new Error(`couldn't look up the order: ${error.message}`);
   return (data as ExistingOrder | null) ?? null;
+}
+
+/** Checkout is turning customers away because orders can't be saved. */
+function alertSaveFailed(what: string, error: string) {
+  alertOwnerLater({
+    key: "pay:save-failed",
+    title: "Checkout couldn't save an order",
+    message: `Checkout couldn't save ${what} (${error}). No card was charged, and the customer was asked to try again in a few minutes. Until this is fixed, nobody can place an order.`,
+    url: `${SITE_URL}/admin/orders`,
+  });
 }
 
 /** Save a new order and its jars as pending_payment. Returns null if it couldn't. */
@@ -216,6 +242,7 @@ async function saveOrder(input: PayInput, quote: Quote): Promise<ExistingOrder |
     // Another request for the same checkout may have saved it a moment ago.
     if (error?.code === "23505") return findOrder(input.checkoutId);
     console.error("Pay: couldn't save the order:", error?.message ?? "no row");
+    alertSaveFailed("a new order", error?.message ?? "no row came back");
     return null;
   }
   const order = data as ExistingOrder;
@@ -233,6 +260,7 @@ async function saveOrder(input: PayInput, quote: Quote): Promise<ExistingOrder |
   );
   if (itemsError) {
     console.error("Pay: couldn't save the order's jars:", itemsError.message);
+    alertSaveFailed(`the jars for order #${order.order_number}`, itemsError.message);
     // Nothing was charged yet, so take the half-saved order back out.
     await supabase.from("orders").delete().eq("id", order.id);
     return null;
@@ -246,15 +274,27 @@ async function saveOrder(input: PayInput, quote: Quote): Promise<ExistingOrder |
  * has already marked is left alone, so it isn't marked (or emailed about)
  * twice.
  */
-async function markOrder(orderId: string, fields: Record<string, unknown>): Promise<boolean> {
+async function markOrder(order: ExistingOrder, fields: Record<string, unknown>): Promise<boolean> {
   const supabase = await createServiceClient();
   const { data, error } = await supabase
     .from("orders")
     .update(fields)
-    .eq("id", orderId)
+    .eq("id", order.id)
     .eq("status", "pending_payment")
     .select("id");
-  if (error) console.error("Pay: couldn't update the order:", error.message);
+  if (error) {
+    console.error("Pay: couldn't update the order:", error.message);
+    const step = fields.status === "paid" ? "paid" : fields.status === "payment_failed" ? "failed" : null;
+    alertOwnerLater({
+      key: `pay:update-failed:${order.order_number}`,
+      title: `Order #${order.order_number}: couldn't save Square's answer`,
+      message: `Square answered about order #${order.order_number}, but the site couldn't save it (${error.message}).${
+        step === "paid" ? " Square took the money, but the order still shows as waiting on payment." : ""
+      }${step === "failed" ? " The card was not charged, but the order still shows as waiting on payment." : ""} Check the payment in Square and the order in the admin.`,
+      url: `${SITE_URL}/admin/orders/${order.id}`,
+      windowHours: ONCE_PER_ORDER_HOURS,
+    });
+  }
   return !error && (data?.length ?? 0) > 0;
 }
 
@@ -357,7 +397,7 @@ async function recordPayment(
   };
 
   if (payment?.status === "COMPLETED") {
-    const marked = await markOrder(saved.id, {
+    const marked = await markOrder(saved, {
       ...details,
       ...contact,
       status: "paid",
@@ -370,14 +410,14 @@ async function recordPayment(
     return success(saved, false);
   }
   if (payment?.status === "FAILED" || payment?.status === "CANCELED") {
-    await markOrder(saved.id, { ...details, status: "payment_failed", payment_error_code: payment.status });
+    await markOrder(saved, { ...details, status: "payment_failed", payment_error_code: payment.status });
     return fail("payment_declined", "Your card was declined. Try another card.", {
       retrySameCheckout: false,
     });
   }
   // APPROVED or PENDING: Square has the card but hasn't settled it. The
   // webhook marks the order paid when Square confirms.
-  await markOrder(saved.id, { ...details, ...contact });
+  await markOrder(saved, { ...details, ...contact });
   keepOptIn(input, saved.id, context);
   return success(saved, true);
 }
@@ -459,13 +499,19 @@ export async function placeOrder(
   if (!attempt.ok && attempt.failure.kind === "rejected") {
     // Square answered, and took no money.
     const failure = attempt.failure;
-    await markOrder(saved.id, { status: "payment_failed", payment_error_code: failure.code });
+    await markOrder(saved, { status: "payment_failed", payment_error_code: failure.code });
     if (isDecline(failure)) {
       return fail("payment_declined", DECLINE_MESSAGES[failure.code] ?? "Your card was declined. Try another card.", {
         retrySameCheckout: false,
       });
     }
     console.error("Pay: Square refused the payment:", failure.code);
+    alertOwnerLater({
+      key: "pay:square-refused",
+      title: "Square refused a payment",
+      message: `Square turned down the payment for order #${saved.order_number} for a reason other than a declined card (${failure.code}). Nothing was charged, and the customer was asked to try again. If this keeps happening, check the Square settings.`,
+      url: `${SITE_URL}/admin/orders/${saved.id}`,
+    });
     return fail("payment_failed", "We couldn't take the payment. Nothing was charged. Please try again.", {
       retrySameCheckout: false,
     });
@@ -482,7 +528,15 @@ export async function placeOrder(
     // Nothing there yet. A retry with the same key and request is safe,
     // unless Square has already said the request doesn't match.
     const keyReused = failure.kind === "unknown" && failure.keyReused;
-    if (found.kind === "none" && !keyReused) return SQUARE_UNREACHABLE;
+    if (found.kind === "none" && !keyReused) {
+      alertOwnerLater({
+        key: "pay:no-answer",
+        title: "Checkout couldn't reach Square",
+        message: `Square didn't answer for order #${saved.order_number} (${failure.code}), and has no payment for it yet. The customer was asked to wait a minute and try again. The order waits on payment until then.`,
+        url: `${SITE_URL}/admin/orders/${saved.id}`,
+      });
+      return SQUARE_UNREACHABLE;
+    }
     return unconfirmed(saved, failure.code);
   }
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { alertOwnerLater } from "@/lib/alerts";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSquareClient } from "@/lib/square";
 import { notifyOrderPaid, notifyOrderRefund } from "@/lib/orders/notify";
@@ -26,7 +27,9 @@ import type { Order } from "@/types/orders";
  *   step stays as it was, so Jesse can still finish a partly refunded order.
  * - dispute.created / dispute.state.updated: the customer's bank is
  *   questioning the charge, or has decided. The order's dispute_status
- *   becomes "open", "won" or "lost", and its step stays as it was.
+ *   becomes "open", "won" or "lost", and its step stays as it was. A new
+ *   dispute alerts Jesse (src/lib/alerts.ts), since the bank sets a deadline
+ *   to answer it.
  *
  * Every message is saved in square_webhook_events first. Square may send the
  * same message more than once; a message already handled is skipped.
@@ -66,12 +69,15 @@ export interface SquareEvent {
   data?: { object?: Record<string, unknown> };
 }
 
+const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://bigsexysbrine.co").trim().replace(/\/$/, "");
+
 const ORDER_COLUMNS =
-  "id, status, total_cents, refunded_cents, dispute_status, disputed_at, square_payment_id, subtotal_cents, delivery_fee_cents, rush_fee_cents, packing_fee_cents, shipping_postage_cents, discount_cents, tax_cents";
+  "id, order_number, status, total_cents, refunded_cents, dispute_status, disputed_at, square_payment_id, subtotal_cents, delivery_fee_cents, rush_fee_cents, packing_fee_cents, shipping_postage_cents, discount_cents, tax_cents";
 
 type OrderRow = Pick<
   Order,
   | "id"
+  | "order_number"
   | "status"
   | "total_cents"
   | "refunded_cents"
@@ -256,6 +262,15 @@ async function handleDispute(dispute: DisputeFields) {
   const disputeId = dispute.id ?? dispute.dispute_id;
   if (disputeId) fields.square_dispute_id = disputeId;
   await updateOrder(order.id, fields);
+  if (plan.dispute_status === "open") {
+    alertOwnerLater({
+      key: `dispute:${order.order_number}`,
+      title: `Card dispute on order #${order.order_number}`,
+      message: `The customer's bank is questioning the charge for order #${order.order_number}. Square holds the money until it's settled. Answer the dispute in Square before its deadline.`,
+      url: `${SITE_URL}/admin/orders/${order.id}`,
+      windowHours: 7 * 24,
+    });
+  }
 }
 
 /**

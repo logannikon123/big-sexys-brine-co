@@ -1,4 +1,5 @@
 import "server-only";
+import { alertOwnerLater } from "@/lib/alerts";
 import { createServiceClient } from "@/lib/supabase/server";
 import { formatPrice } from "@/lib/utils";
 import {
@@ -19,9 +20,14 @@ import type { OrderEmailKind, OrderStatus } from "@/types/orders";
  * - a receipt email to the customer with a link to their order page.
  *
  * Each order is announced once: the first caller sets alerted_at, and any
- * later caller (a second webhook message, say) finds it set and stops. A
- * missing setting or a failed send is logged, never thrown, because the
- * customer has already paid and their order must not fail over an email.
+ * later caller (a second webhook message, say) finds it set and stops. If
+ * neither the phone alert nor the alert email gets through, alerted_at is
+ * cleared again, so the health check (src/app/api/cron/health-check) finds
+ * the order and tells Jesse about it.
+ *
+ * A missing setting or a failed send is logged and sent to Jesse as a
+ * problem alert (src/lib/alerts.ts), never thrown, because the customer has
+ * already paid and their order must not fail over an email.
  *
  * Later emails to the customer (ready, out for delivery, shipped, delivered,
  * cancelled, refunded) are at the end of this file.
@@ -125,17 +131,37 @@ async function claimOrder(orderId: string): Promise<PaidOrder | null> {
     .maybeSingle();
   if (error) {
     console.error("Order alert: couldn't read the order:", error.message);
+    alertOrderProblem(
+      "A paid order couldn't be announced",
+      `The site couldn't read a paid order to send its new-order alert (${error.message}). The health check looks for paid orders with no alert every 15 minutes.`,
+      `${SITE_URL}/admin/orders`
+    );
     return null;
   }
   return (data as PaidOrder | null) ?? null;
 }
 
-async function sendPushover(order: PaidOrder, test: boolean) {
+/** Undo claimOrder, so the health check sees the order was never announced. */
+async function releaseOrder(orderId: string) {
+  const supabase = await createServiceClient();
+  const { error } = await supabase.from("orders").update({ alerted_at: null }).eq("id", orderId);
+  if (error) console.error("Order alert: couldn't clear alerted_at:", error.message);
+}
+
+/** A problem with the new-order alert itself. */
+function alertOrderProblem(title: string, message: string, url: string) {
+  alertOwnerLater({ key: "order-alert:failed", title, message, url });
+}
+
+/** What went wrong with one send, or null when it went out. */
+type SendResult = string | null;
+
+async function sendPushover(order: PaidOrder, test: boolean): Promise<SendResult> {
   const token = process.env.PUSHOVER_TOKEN;
   const user = process.env.PUSHOVER_USER;
   if (!token || !user) {
     console.error("Order alert: PUSHOVER_TOKEN or PUSHOVER_USER is not set, so no phone alert.");
-    return;
+    return "PUSHOVER_TOKEN or PUSHOVER_USER is not set";
   }
   const jars = order.order_items.reduce((sum, item) => sum + item.quantity, 0);
   const res = await fetch("https://api.pushover.net/1/messages.json", {
@@ -150,19 +176,24 @@ async function sendPushover(order: PaidOrder, test: boolean) {
       url_title: "Open in Admin",
     }),
   });
-  if (!res.ok) console.error("Order alert: Pushover refused the alert:", res.status);
+  if (!res.ok) {
+    console.error("Order alert: Pushover refused the alert:", res.status);
+    return `Pushover answered ${res.status}`;
+  }
+  return null;
 }
 
-async function sendEmails(order: PaidOrder, test: boolean) {
+async function sendEmails(order: PaidOrder, test: boolean): Promise<{ alert: SendResult; receipt: SendResult }> {
   if (!process.env.RESEND_API_KEY) {
     console.error("Order alert: RESEND_API_KEY is not set, so no order emails.");
-    return;
+    return { alert: "RESEND_API_KEY is not set", receipt: "RESEND_API_KEY is not set" };
   }
   const { Resend } = await import("resend");
   const resend = new Resend(process.env.RESEND_API_KEY);
   const tag = test ? "[TEST] " : "";
   const orderPage = `${SITE_URL}/order/${order.public_token}`;
 
+  let alert: SendResult = null;
   const alertTo = process.env.ORDER_ALERT_EMAIL;
   if (alertTo) {
     const result = await resend.emails.send({
@@ -188,9 +219,13 @@ async function sendEmails(order: PaidOrder, test: boolean) {
         `Open in Admin: ${SITE_URL}/admin/orders/${order.id}`,
       ].join("\n"),
     });
-    if (result.error) console.error("Order alert: Resend refused the alert email:", result.error.message);
+    if (result.error) {
+      console.error("Order alert: Resend refused the alert email:", result.error.message);
+      alert = `Resend refused it: ${result.error.message}`;
+    }
   } else {
     console.error("Order alert: ORDER_ALERT_EMAIL is not set, so no alert email.");
+    alert = "ORDER_ALERT_EMAIL is not set";
   }
 
   const how =
@@ -221,7 +256,18 @@ async function sendEmails(order: PaidOrder, test: boolean) {
       "Big Sexy's Brine Co.",
     ].join("\n"),
   });
-  if (receipt.error) console.error("Order alert: Resend refused the receipt email:", receipt.error.message);
+  if (receipt.error) {
+    console.error("Order alert: Resend refused the receipt email:", receipt.error.message);
+    return { alert, receipt: `Resend refused it: ${receipt.error.message}` };
+  }
+  return { alert, receipt: null };
+}
+
+/** A send that threw, logged, as words for an alert. */
+function thrown(result: PromiseRejectedResult): string {
+  const reason = result.reason instanceof Error ? result.reason.message : "unknown error";
+  console.error("Order alert failed:", reason);
+  return reason;
 }
 
 /** Announce a paid order once. Never throws. */
@@ -230,17 +276,44 @@ export async function notifyOrderPaid(orderId: string): Promise<void> {
     const order = await claimOrder(orderId);
     if (!order) return;
     const test = order.square_environment !== "production";
-    const results = await Promise.allSettled([sendPushover(order, test), sendEmails(order, test)]);
-    for (const result of results) {
-      if (result.status === "rejected") {
-        console.error(
-          "Order alert failed:",
-          result.reason instanceof Error ? result.reason.message : "unknown error"
-        );
-      }
+    const [phone, emails] = await Promise.allSettled([sendPushover(order, test), sendEmails(order, test)]);
+    const phoneProblem = phone.status === "fulfilled" ? phone.value : thrown(phone);
+    const emailsThrew = emails.status === "rejected" ? thrown(emails) : null;
+    const alertProblem = emails.status === "fulfilled" ? emails.value.alert : emailsThrew;
+    const receiptProblem = emails.status === "fulfilled" ? emails.value.receipt : emailsThrew;
+    const orderUrl = `${SITE_URL}/admin/orders/${order.id}`;
+
+    if (phoneProblem || alertProblem) {
+      const told = phoneProblem && alertProblem ? null : phoneProblem ? "alert email" : "phone alert";
+      // Nobody was told: let the health check find the order again.
+      if (!told) await releaseOrder(order.id);
+      alertOrderProblem(
+        `New order #${order.order_number}: ${told ? "an order alert failed" : "order alerts failed"}`,
+        [
+          `Order #${order.order_number} is paid.`,
+          ...(phoneProblem ? [`The phone alert didn't go out (${phoneProblem}).`] : []),
+          ...(alertProblem ? [`The alert email didn't go out (${alertProblem}).`] : []),
+          told ? `The ${told} did.` : "Open the order and pack it as normal.",
+        ].join(" "),
+        orderUrl
+      );
+    }
+    if (receiptProblem) {
+      alertOwnerLater({
+        key: "order-email:receipt",
+        title: `Order #${order.order_number}: receipt email failed`,
+        message: `The customer's receipt for order #${order.order_number} didn't go out (${receiptProblem}). They saw their order number on screen at checkout. Their email address is on the order page if they need a copy.`,
+        url: orderUrl,
+      });
     }
   } catch (error) {
-    console.error("Order alert failed:", error instanceof Error ? error.message : "unknown error");
+    const reason = error instanceof Error ? error.message : "unknown error";
+    console.error("Order alert failed:", reason);
+    alertOrderProblem(
+      "A new-order alert failed",
+      `Announcing a paid order failed (${reason}). Check the newest orders in the admin.`,
+      `${SITE_URL}/admin/orders/${orderId}`
+    );
   }
 }
 
@@ -253,6 +326,17 @@ type EmailOrderRow = EmailOrder & { customer_email: string; pickup_instructions:
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
+}
+
+/** A customer email (ready, shipped, refunded and so on) didn't go out. */
+function alertCustomerEmail(orderId: string, orderNumber: number | null, kind: string, reason: string) {
+  const which = orderNumber === null ? "an order" : `order #${orderNumber}`;
+  alertOwnerLater({
+    key: "order-email:customer",
+    title: `Customer email failed for ${which}`,
+    message: `The "${kind}" email to the customer for ${which} didn't go out (${reason}). Let them know another way if it matters.`,
+    url: `${SITE_URL}/admin/orders/${orderId}`,
+  });
 }
 
 /**
@@ -269,7 +353,10 @@ async function claimEmail(orderId: string, kind: OrderEmailKind, eventKey: strin
     .maybeSingle();
   if (error) {
     // 23505: the row exists, so this email was already sent or tried.
-    if (error.code !== "23505") console.error(`Customer email (${kind}): couldn't log it:`, error.message);
+    if (error.code !== "23505") {
+      console.error(`Customer email (${kind}): couldn't log it:`, error.message);
+      alertCustomerEmail(orderId, null, kind, `couldn't log it, so it wasn't sent: ${error.message}`);
+    }
     return null;
   }
   return (data?.id as number | undefined) ?? null;
@@ -293,6 +380,7 @@ async function loadEmailOrder(orderId: string): Promise<EmailOrderRow | null> {
     .maybeSingle();
   if (error) {
     console.error("Customer email: couldn't read the order:", error.message);
+    alertCustomerEmail(orderId, null, "order update", `couldn't read the order: ${error.message}`);
     return null;
   }
   return (data as EmailOrderRow | null) ?? null;
@@ -321,6 +409,7 @@ async function sendCustomerEmail(
 
     if (!process.env.RESEND_API_KEY) {
       console.error(`Customer email (${kind}): RESEND_API_KEY is not set, so no email.`);
+      alertCustomerEmail(orderId, order.order_number, kind, "RESEND_API_KEY is not set");
       await finishEmail(claimed, "RESEND_API_KEY is not set");
       return;
     }
@@ -337,12 +426,14 @@ async function sendCustomerEmail(
     });
     if (result.error) {
       console.error(`Customer email (${kind}): Resend refused it:`, result.error.message);
+      alertCustomerEmail(orderId, order.order_number, kind, `Resend refused it: ${result.error.message}`);
       await finishEmail(claimed, result.error.message);
       return;
     }
     await finishEmail(claimed, null);
   } catch (error) {
     console.error(`Customer email (${kind}) failed:`, errorText(error));
+    alertCustomerEmail(orderId, order.order_number, kind, errorText(error));
     if (claimed !== null) await finishEmail(claimed, errorText(error)).catch(() => {});
   }
 }
