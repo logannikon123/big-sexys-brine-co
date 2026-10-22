@@ -13,12 +13,13 @@ import {
 } from "@/components/ui/table";
 import { kindLabel } from "@/lib/food-tax-rates";
 import { denverDateString } from "@/lib/admin/sales-stats";
-import type {
-  RefundTiming,
-  TaxReport,
-  TaxReportGroup,
-  TaxReportNote,
-  TaxTextLine,
+import {
+  emptyReason,
+  type RefundTiming,
+  type TaxReport,
+  type TaxReportGroup,
+  type TaxReportNote,
+  type TaxTextLine,
 } from "@/lib/admin/tax-report";
 import {
   lastMonth,
@@ -427,7 +428,7 @@ export function TaxReportView({ report, period }: { report: TaxReport; period: T
       {nothing ? (
         <Card>
           <CardContent className="py-10 text-center text-muted-foreground">
-            No paid orders in {periodLabel(period)}.
+            {emptyReason(report)}
           </CardContent>
         </Card>
       ) : (
