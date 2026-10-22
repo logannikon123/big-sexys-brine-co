@@ -197,7 +197,11 @@ export async function loadOrder(id: string): Promise<OrderWithItems | null> {
   return {
     order: orderResult.data as Order,
     items: (itemsResult.data ?? []) as OrderItem[],
-    refunds: (refundsResult.data ?? []) as OrderRefund[],
+    // refund_for is missing until its migration is pushed: treat as no answer.
+    refunds: ((refundsResult.data ?? []) as OrderRefund[]).map((r) => ({
+      ...r,
+      refund_for: r.refund_for ?? null,
+    })),
     emails: (emailsResult.data ?? []) as OrderEmail[],
     taxParts: (partsResult.data ?? []) as OrderTaxPart[],
   };
