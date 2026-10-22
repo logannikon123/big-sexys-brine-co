@@ -126,7 +126,10 @@ export default async function EventsPage() {
                 return (
                   <div
                     key={event.id}
-                    className="bg-card border border-brand-brown/20 rounded-xl p-6 flex flex-col sm:flex-row gap-6 hover:border-brand-orange/30 transition-colors"
+                    // The home page banner links here with /events#event-12.
+                    // scroll-mt keeps the card clear of the fixed header.
+                    id={`event-${event.id}`}
+                    className="scroll-mt-28 bg-card border border-brand-brown/20 rounded-xl p-6 flex flex-col sm:flex-row gap-6 hover:border-brand-orange/30 transition-colors"
                   >
                     <div className="flex-shrink-0 text-center sm:text-left">
                       <div className="inline-flex flex-col items-center bg-brand-orange/10 rounded-xl px-5 py-3">
