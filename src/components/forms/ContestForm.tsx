@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { MARKETING_CONSENT_TEXT } from "@/lib/marketing";
 import { cn } from "@/lib/utils";
 import { Send, AlertCircle, Loader2, Trophy } from "lucide-react";
 
@@ -14,6 +16,7 @@ const contestSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   email: z.string().email("Please enter a valid email address"),
   pun: z.string().min(5, "Your pun must be at least 5 characters"),
+  marketingOptIn: z.boolean(),
   honeypot: z.string().max(0),
 });
 
@@ -30,6 +33,7 @@ export function ContestForm() {
   } = useForm<ContestFormData>({
     resolver: zodResolver(contestSchema),
     defaultValues: {
+      marketingOptIn: true,
       honeypot: "",
     },
   });
@@ -46,6 +50,7 @@ export function ContestForm() {
           name: data.name,
           email: data.email,
           pun: data.pun,
+          marketingOptIn: data.marketingOptIn,
         }),
       });
 
@@ -134,6 +139,21 @@ export function ContestForm() {
           <p className="text-xs text-brand-red">{errors.pun.message}</p>
         )}
       </div>
+
+      <label className="flex cursor-pointer items-start gap-3 text-sm text-brand-cream/80">
+        <input
+          type="checkbox"
+          {...register("marketingOptIn")}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-brand-orange"
+        />
+        <span>
+          {MARKETING_CONSENT_TEXT}{" "}
+          <span className="text-brand-cream/50">
+            Optional, and not needed to enter. Unsubscribe any time. See our{" "}
+            <Link href="/privacy" target="_blank" className="underline hover:text-brand-orange">privacy policy</Link>.
+          </span>
+        </span>
+      </label>
 
       {status === "error" && (
         <div className="flex items-center gap-2 text-brand-red text-sm">

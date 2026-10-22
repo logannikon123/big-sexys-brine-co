@@ -1,5 +1,6 @@
 import { Container } from "@/components/layout/Container";
-import { getUpcomingEvents, getPastEvents } from "@/lib/data";
+import { getUpcomingEvents, getPastEvents, getRetailLocations } from "@/lib/data";
+import { RetailLocations } from "@/components/find-us/RetailLocations";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Calendar, MapPin, Clock, Repeat } from "lucide-react";
@@ -8,53 +9,53 @@ import Link from "next/link";
 import { EventJsonLd } from "@/components/seo/JsonLd";
 import type { Metadata } from "next";
 import type { Event } from "@/types";
+import { eventDayParts, formatEventDay } from "@/lib/event-dates";
 
 export const metadata: Metadata = {
   title: "Find Us",
   description:
-    "Find Big Sexy's Brine Co. at farmers markets, festivals, and pop-ups across the Denver metro area. Come say hi and grab a jar.",
+    "Find Big Sexy's Brine Co. in shops, and at farmers markets, festivals, and pop-ups across the Denver metro area. Come say hi and grab a jar.",
   openGraph: {
     title: "Find Us | Big Sexy's Brine Co.",
-    description: "Find Big Sexy's at farmers markets, festivals, and pop-ups across Denver. Come say hi and grab a jar.",
+    description: "Find Big Sexy's in shops and at farmers markets, festivals, and pop-ups across Denver. Come say hi and grab a jar.",
     images: [{ url: "/images/logo/logo-transparent.png" }],
   },
 };
 
 function formatEventDate(event: Event): string {
-  const startDate = new Date(event.date);
   if (event.is_recurring && event.recurrence_day && event.end_date) {
-    const endDate = new Date(event.end_date);
-    return `Every ${event.recurrence_day}, ${startDate.toLocaleDateString("en-US", {
+    return `Every ${event.recurrence_day}, ${formatEventDay(event.date, {
       month: "long",
       day: "numeric",
-    })} – ${endDate.toLocaleDateString("en-US", {
+    })} – ${formatEventDay(event.end_date, {
       month: "long",
       day: "numeric",
       year: "numeric",
     })}`;
   }
   if (event.end_date) {
-    const endDate = new Date(event.end_date);
-    const sameMonth = startDate.getMonth() === endDate.getMonth() && startDate.getFullYear() === endDate.getFullYear();
+    const start = eventDayParts(event.date);
+    const end = eventDayParts(event.end_date);
+    const sameMonth = start.month === end.month && start.year === end.year;
     if (sameMonth) {
-      return `${startDate.toLocaleDateString("en-US", {
+      return `${formatEventDay(event.date, {
         month: "long",
         day: "numeric",
-      })} – ${endDate.toLocaleDateString("en-US", {
+      })} – ${formatEventDay(event.end_date, {
         day: "numeric",
         year: "numeric",
       })}`;
     }
-    return `${startDate.toLocaleDateString("en-US", {
+    return `${formatEventDay(event.date, {
       month: "long",
       day: "numeric",
-    })} – ${endDate.toLocaleDateString("en-US", {
+    })} – ${formatEventDay(event.end_date, {
       month: "long",
       day: "numeric",
       year: "numeric",
     })}`;
   }
-  return startDate.toLocaleDateString("en-US", {
+  return formatEventDay(event.date, {
     weekday: "long",
     month: "long",
     day: "numeric",
@@ -63,29 +64,31 @@ function formatEventDate(event: Event): string {
 }
 
 function formatEventDateBadge(event: Event): { top: string; bottom: string } {
-  const startDate = new Date(event.date);
+  const startMonth = formatEventDay(event.date, { month: "short" });
   if (event.is_recurring && event.recurrence_day) {
     return {
       top: event.recurrence_day.slice(0, 3).toUpperCase(),
-      bottom: startDate.toLocaleDateString("en-US", { month: "short" }) + " – " + (event.end_date ? new Date(event.end_date).toLocaleDateString("en-US", { month: "short" }) : ""),
+      bottom: startMonth + " – " + (event.end_date ? formatEventDay(event.end_date, { month: "short" }) : ""),
     };
   }
   if (event.end_date) {
-    const endDate = new Date(event.end_date);
     return {
-      top: `${startDate.getDate()}–${endDate.getDate()}`,
-      bottom: startDate.toLocaleDateString("en-US", { month: "short" }),
+      top: `${eventDayParts(event.date).day}–${eventDayParts(event.end_date).day}`,
+      bottom: startMonth,
     };
   }
   return {
-    top: String(startDate.getDate()),
-    bottom: startDate.toLocaleDateString("en-US", { month: "short" }),
+    top: String(eventDayParts(event.date).day),
+    bottom: startMonth,
   };
 }
 
 export default async function EventsPage() {
-  const upcoming = await getUpcomingEvents();
-  const past = await getPastEvents();
+  const [upcoming, past, stores] = await Promise.all([
+    getUpcomingEvents(),
+    getPastEvents(),
+    getRetailLocations(),
+  ]);
 
   return (
     <>
@@ -96,16 +99,19 @@ export default async function EventsPage() {
         <Container>
           <div className="text-center mb-12">
             <Badge className="bg-brand-gold/10 text-brand-gold border-brand-gold/20 mb-4">
-              Markets &amp; Festivals
+              Stores &amp; Markets
             </Badge>
           <h1 className="font-display text-4xl sm:text-5xl md:text-6xl font-bold text-brand-cream">
             Find Us
           </h1>
           <p className="mt-4 text-brand-cream/60 max-w-2xl mx-auto text-lg">
-            We set up, we hand out samples, we talk your ear off about brine
-            ratios. Here&apos;s where you can catch us next across Colorado.
+            Pick up a jar at a shop near you, or catch us in person: we set up,
+            we hand out samples, we talk your ear off about brine ratios.
           </p>
         </div>
+
+        {/* Retail Locations */}
+        <RetailLocations locations={stores} />
 
         {/* Upcoming Events */}
         <div className="mb-16">
@@ -119,7 +125,10 @@ export default async function EventsPage() {
                 return (
                   <div
                     key={event.id}
-                    className="bg-card border border-brand-brown/20 rounded-xl p-6 flex flex-col sm:flex-row gap-6 hover:border-brand-orange/30 transition-colors"
+                    // The home page banner links here with /events#event-12.
+                    // scroll-mt keeps the card clear of the fixed header.
+                    id={`event-${event.id}`}
+                    className="scroll-mt-28 bg-card border border-brand-brown/20 rounded-xl p-6 flex flex-col sm:flex-row gap-6 hover:border-brand-orange/30 transition-colors"
                   >
                     <div className="flex-shrink-0 text-center sm:text-left">
                       <div className="inline-flex flex-col items-center bg-brand-orange/10 rounded-xl px-5 py-3">
@@ -211,8 +220,8 @@ export default async function EventsPage() {
                 >
                   <span className="text-sm text-brand-cream/40 w-28 shrink-0">
                     {event.is_recurring && event.end_date
-                      ? `thru ${new Date(event.end_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`
-                      : new Date(event.date).toLocaleDateString("en-US", {
+                      ? `thru ${formatEventDay(event.end_date, { month: "short", day: "numeric", year: "numeric" })}`
+                      : formatEventDay(event.date, {
                           month: "short",
                           day: "numeric",
                           year: "numeric",

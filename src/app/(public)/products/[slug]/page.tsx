@@ -1,15 +1,20 @@
 import { Container } from "@/components/layout/Container";
 import { HeatIndicator } from "@/components/products/HeatIndicator";
-import { getProducts, getProductBySlug } from "@/lib/data";
+import { getProducts, getProductBySlug, getOrderingAvailable } from "@/lib/data";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { ProductJsonLd, BreadcrumbJsonLd } from "@/components/seo/JsonLd";
 import { ProductImageCarousel } from "@/components/products/ProductImageCarousel";
+import { PriceTag } from "@/components/products/PriceTag";
+import { canOrderOnline, sizeLabel } from "@/lib/utils";
+import { AddToCart } from "@/components/cart/AddToCart";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { toPlainText } from "@/lib/plain-text";
+import { CottageFoodNotice } from "@/components/legal/CottageFoodNotice";
 
 // Revalidate every 60 seconds — ensures revalidatePath() from admin
 // actions actually busts the edge cache for these pages.
@@ -30,12 +35,14 @@ export async function generateMetadata({
   const { slug } = await params;
   const product = await getProductBySlug(slug);
   if (!product) return { title: "Product Not Found" };
+  // Search results and link previews show plain text, not formatting.
+  const description = toPlainText(product.description, 160);
   return {
     title: product.name,
-    description: product.description,
+    description,
     openGraph: {
       title: `${product.name} | Big Sexy's Brine Co.`,
-      description: product.description,
+      description,
       images: [{ url: product.image }],
     },
   };
@@ -51,7 +58,11 @@ export default async function ProductDetailPage({
 
   if (!product) notFound();
 
-  const allProducts = await getProducts();
+  const [allProducts, orderingAvailable] = await Promise.all([
+    getProducts(),
+    getOrderingAvailable(),
+  ]);
+  const orderable = orderingAvailable && canOrderOnline(product);
   const currentIndex = allProducts.findIndex((p) => p.slug === slug);
   const prevProduct = currentIndex > 0 ? allProducts[currentIndex - 1] : null;
   const nextProduct =
@@ -80,7 +91,7 @@ export default async function ProductDetailPage({
           <ProductImageCarousel
             images={product.images ?? []}
             productName={product.name}
-            productSize={product.size}
+            productSize={sizeLabel(product.size)}
             fallbackImage={product.image}
           />
 
@@ -101,9 +112,16 @@ export default async function ProductDetailPage({
               </p>
             </div>
 
-            <div className="flex items-center gap-4">
-              <span className="text-sm text-brand-cream/60">Heat Level:</span>
-              <HeatIndicator level={product.heat} size={20} />
+            <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+              <PriceTag
+                priceCents={product.priceCents}
+                soldOut={product.soldOut}
+                priceClassName="font-display text-3xl font-bold"
+              />
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-brand-cream/60">Heat Level:</span>
+                <HeatIndicator level={product.heat} size={20} />
+              </div>
             </div>
 
             <Separator className="bg-brand-brown/30" />
@@ -135,27 +153,53 @@ export default async function ProductDetailPage({
             <Separator className="bg-brand-brown/30" />
 
             <div className="bg-card border border-brand-brown/20 rounded-xl p-6 space-y-4">
-              <h3 className="font-display text-lg font-semibold text-brand-cream">
-                Want This Jar?
-              </h3>
-              <p className="text-sm text-brand-cream/60">
-                Grab one at our next market, or reach out for custom orders and
-                bulk pricing. We&apos;ll hook you up.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Link
-                  href="/contact"
-                  className="inline-flex items-center justify-center px-6 py-3 bg-brand-orange text-white font-semibold rounded-full hover:bg-brand-orange/90 transition-colors"
-                >
-                  Say Hello
-                </Link>
-                <Link
-                  href="/events"
-                  className="inline-flex items-center justify-center px-6 py-3 border border-brand-cream/30 text-brand-cream font-semibold rounded-full hover:border-brand-orange hover:text-brand-orange transition-colors"
-                >
-                  Find Us Live
-                </Link>
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <h3 className="font-display text-lg font-semibold text-brand-cream">
+                  {orderable ? "Order This Jar" : "Want This Jar?"}
+                </h3>
+                <PriceTag
+                  priceCents={product.priceCents}
+                  soldOut={product.soldOut}
+                  priceClassName="text-lg"
+                />
               </div>
+              {orderable ? (
+                <>
+                  <AddToCart productId={product.id} productName={product.name} />
+                  <p className="text-xs text-brand-cream/60">
+                    Pick up in Lakewood, local delivery, or shipping (Colorado only).
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-brand-cream/60">
+                    {orderingAvailable ? (
+                      "Sold out online for now. Find it at our next market."
+                    ) : (
+                      <>
+                        Grab one at our next market, or reach out for custom orders and
+                        bulk pricing. We&apos;ll hook you up.
+                      </>
+                    )}
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <Link
+                      href="/contact"
+                      className="inline-flex items-center justify-center px-6 py-3 bg-brand-orange text-white font-semibold rounded-full hover:bg-brand-orange/90 transition-colors"
+                    >
+                      Say Hello
+                    </Link>
+                    <Link
+                      href="/events"
+                      className="inline-flex items-center justify-center px-6 py-3 border border-brand-cream/30 text-brand-cream font-semibold rounded-full hover:border-brand-orange hover:text-brand-orange transition-colors"
+                    >
+                      Find Us Live
+                    </Link>
+                  </div>
+                </>
+              )}
+              {/* Colorado's cottage food law wants this notice where people buy. */}
+              <CottageFoodNotice className="border-t border-brand-brown/20 pt-4" />
             </div>
           </div>
         </div>

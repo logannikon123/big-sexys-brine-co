@@ -4,12 +4,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  ShoppingBag,
+  BarChart3,
+  Mail,
   Package,
   CalendarDays,
+  MapPin,
   MessageSquareQuote,
   GraduationCap,
   Images,
+  Megaphone,
   Tags,
+  Store,
+  Percent,
   RefreshCcw,
   LogOut,
   Menu,
@@ -22,12 +29,19 @@ import { useState } from "react";
 
 const navItems = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
+  { href: "/admin/sales", label: "Sales", icon: BarChart3 },
+  { href: "/admin/marketing", label: "Marketing", icon: Mail },
   { href: "/admin/products", label: "Products", icon: Package },
   { href: "/admin/categories", label: "Categories", icon: Tags },
   { href: "/admin/events", label: "Events", icon: CalendarDays },
+  { href: "/admin/retail", label: "Retail locations", icon: MapPin },
   { href: "/admin/testimonials", label: "Testimonials", icon: MessageSquareQuote },
   { href: "/admin/class", label: "Class Info", icon: GraduationCap },
   { href: "/admin/gallery", label: "Gallery", icon: Images },
+  { href: "/admin/banner", label: "Home banner", icon: Megaphone },
+  { href: "/admin/store", label: "Store settings", icon: Store },
+  { href: "/admin/tax", label: "Sales tax", icon: Percent },
   { href: "/admin/cache", label: "Cache", icon: RefreshCcw },
 ];
 

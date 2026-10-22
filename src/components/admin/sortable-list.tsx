@@ -123,6 +123,8 @@ export function SortableList<T extends { id: number; sort_order: number }>({
         </div>
       )}
       <DndContext
+        // A fixed id keeps dnd-kit's screen reader labels the same in the
+        // server render and the browser, so React logs no mismatch warning.
         id={dndId}
         sensors={sensors}
         collisionDetection={closestCenter}

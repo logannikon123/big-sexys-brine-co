@@ -1,6 +1,8 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { unstable_cache } from "next/cache";
-import type { Product, ProductImage, Event, ClassInfo, Testimonial } from "@/types";
+import type { Product, ProductImage, Event, ClassInfo, Testimonial, RetailLocation } from "@/types";
+import type { StoreSettings } from "@/lib/store-settings";
+import { isEventUpcoming } from "@/lib/event-dates";
 
 // Fallback to JSON files if Supabase is not configured
 const useSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -224,35 +226,47 @@ export const getEvents = unstable_cache(_getEventsUncached, ["events-all"], {
   revalidate: 60,
 });
 
+// Retail locations: stores that carry the jars. Only visible ones, in the
+// admin's order. A failed read returns none, so the Find Us page still shows
+// its events.
+const _getRetailLocationsUncached = async (): Promise<RetailLocation[]> => {
+  if (!useSupabase) {
+    const data = (await import("@/content/retail-locations.json")).default;
+    return (data as RetailLocation[])
+      .filter((r) => r.is_visible)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  }
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("retail_locations")
+    .select("*")
+    .eq("is_visible", true)
+    .order("sort_order");
+  if (error) {
+    console.error("Couldn't read retail locations:", error.message);
+    return [];
+  }
+  return (data ?? []) as RetailLocation[];
+};
+
+export const getRetailLocations = unstable_cache(
+  _getRetailLocationsUncached,
+  ["retail-locations-visible"],
+  { tags: ["retail-locations"], revalidate: 60 }
+);
+
+// An event stays upcoming through its last day (end_date, or date for a
+// one-day event) in Colorado. See src/lib/event-dates.ts.
 export async function getUpcomingEvents(): Promise<Event[]> {
   const events = await getEvents();
   const now = new Date();
-  return events.filter((e) => {
-    // For recurring events with an end_date, check if end_date is in the future
-    if (e.is_recurring && e.end_date) {
-      return new Date(e.end_date) >= now;
-    }
-    // For events with end_date (multi-day), check end_date
-    if (e.end_date) {
-      return new Date(e.end_date) >= now;
-    }
-    // Otherwise check the single date
-    return new Date(e.date) >= now;
-  });
+  return events.filter((e) => isEventUpcoming(e, now));
 }
 
 export async function getPastEvents(): Promise<Event[]> {
   const events = await getEvents();
   const now = new Date();
-  return events.filter((e) => {
-    if (e.is_recurring && e.end_date) {
-      return new Date(e.end_date) < now;
-    }
-    if (e.end_date) {
-      return new Date(e.end_date) < now;
-    }
-    return new Date(e.date) < now;
-  });
+  return events.filter((e) => !isEventUpcoming(e, now));
 }
 
 // Class Info
@@ -308,6 +322,69 @@ export const getTestimonials = unstable_cache(
   { tags: ["testimonials"], revalidate: 60 }
 );
 
+// Store settings
+/** The store settings the public site needs. Anyone can read these. */
+export type PublicStoreSettings = Pick<
+  StoreSettings,
+  | "orders_open"
+  | "pickup_enabled"
+  | "delivery_enabled"
+  | "shipping_enabled"
+  | "jars_per_box"
+  | "packing_fee_per_box_cents"
+  | "delivery_min_order_cents"
+  | "delivery_standard_hours"
+  | "rush_fee_cents"
+  | "shipping_states"
+  | "delivery_max_miles"
+  | "delivery_step_miles"
+  | "delivery_fee_per_step_cents"
+  | "free_delivery_enabled"
+  | "free_delivery_max_miles"
+  | "free_delivery_min_order_cents"
+  | "shipping_fallback_per_box_cents"
+  | "shipping_cushion_per_box_cents"
+>;
+
+const _getStoreSettingsUncached = async (): Promise<PublicStoreSettings | null> => {
+  if (!useSupabase) return null;
+  const supabase = getSupabase();
+  const { data } = await supabase
+    .from("store_settings")
+    .select(
+      "orders_open, pickup_enabled, delivery_enabled, shipping_enabled, jars_per_box, packing_fee_per_box_cents, delivery_min_order_cents, delivery_standard_hours, rush_fee_cents, shipping_states, delivery_max_miles, delivery_step_miles, delivery_fee_per_step_cents, free_delivery_enabled, free_delivery_max_miles, free_delivery_min_order_cents, shipping_fallback_per_box_cents, shipping_cushion_per_box_cents"
+    )
+    .eq("id", 1)
+    .maybeSingle();
+  if (!data) return null;
+  // Postgres NUMERIC columns arrive as strings, like "24.0".
+  const milesOrNull = (value: unknown) => (value === null || value === undefined ? null : Number(value));
+  return {
+    ...data,
+    delivery_max_miles: Number(data.delivery_max_miles),
+    delivery_step_miles: Number(data.delivery_step_miles),
+    free_delivery_max_miles: milesOrNull(data.free_delivery_max_miles),
+  } as PublicStoreSettings;
+};
+
+/** Store settings, or null if they can't be read. Saving them in the admin clears this cache. */
+export const getStoreSettings = unstable_cache(
+  _getStoreSettingsUncached,
+  ["store-settings"],
+  { tags: ["store-settings"], revalidate: 60 }
+);
+
+/**
+ * True when customers can add jars to a cart: the admin has opened the
+ * store, or this computer previews ordering with
+ * NEXT_PUBLIC_ORDERING_PREVIEW=true (local preview only, never set in Vercel).
+ */
+export async function getOrderingAvailable(): Promise<boolean> {
+  if (process.env.NEXT_PUBLIC_ORDERING_PREVIEW === "true") return true;
+  const settings = await getStoreSettings();
+  return settings?.orders_open === true;
+}
+
 // Helper to map Supabase product row to Product type
 function mapProduct(row: Record<string, unknown>): Product {
   return {
@@ -322,5 +399,8 @@ function mapProduct(row: Record<string, unknown>): Product {
     category: row.category as Product["category"],
     image: (row.image_url as string) ?? (row.image as string) ?? "",
     featured: row.featured as boolean | undefined,
+    priceCents: (row.price_cents as number | null | undefined) ?? null,
+    soldOnline: (row.sold_online as boolean | undefined) ?? false,
+    soldOut: (row.sold_out as boolean | undefined) ?? false,
   };
 }

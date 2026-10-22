@@ -1,9 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import { requireAuth } from "@/lib/supabase/auth-guard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Package, CalendarDays, MessageSquareQuote, Images } from "lucide-react";
+import {
+  Package,
+  CalendarDays,
+  MessageSquareQuote,
+  Images,
+  ShoppingBag,
+  ChartColumn,
+  ChevronRight,
+} from "lucide-react";
 import Link from "next/link";
 import { ClearCacheButton } from "@/components/admin/clear-cache-button";
+import { countNewOrders } from "@/app/admin/orders/order-data";
+import { OwnerAlertsCard } from "@/components/admin/owner-alerts-card";
+import { formatEventDay, isEventUpcoming } from "@/lib/event-dates";
 
 export default async function AdminDashboardPage() {
   await requireAuth();
@@ -14,11 +25,13 @@ export default async function AdminDashboardPage() {
     { count: eventCount },
     { count: testimonialCount },
     { count: galleryCount },
+    newOrderCount,
   ] = await Promise.all([
     supabase.from("products").select("*", { count: "exact", head: true }),
     supabase.from("events").select("*", { count: "exact", head: true }),
     supabase.from("testimonials").select("*", { count: "exact", head: true }),
     supabase.from("gallery_images").select("*", { count: "exact", head: true }),
+    countNewOrders(),
   ]);
 
   // Get upcoming events — match public events page logic: include recurring
@@ -30,11 +43,7 @@ export default async function AdminDashboardPage() {
     .order("date", { ascending: true });
   const now = new Date();
   const upcomingEvents = (allEvents ?? [])
-    .filter((e) => {
-      if (e.is_recurring && e.end_date) return new Date(e.end_date) >= now;
-      if (e.end_date) return new Date(e.end_date) >= now;
-      return new Date(e.date) >= now;
-    })
+    .filter((e) => isEventUpcoming(e, now))
     .slice(0, 5);
 
   // Get recent testimonials
@@ -45,6 +54,15 @@ export default async function AdminDashboardPage() {
     .limit(3);
 
   const stats = [
+    {
+      // Paid orders waiting to be packed.
+      label: "New orders",
+      value: newOrderCount,
+      icon: ShoppingBag,
+      href: "/admin/orders",
+      color: "text-brand-orange",
+      highlight: newOrderCount > 0,
+    },
     {
       label: "Products",
       value: productCount ?? 0,
@@ -88,10 +106,16 @@ export default async function AdminDashboardPage() {
       </div>
 
       {/* Stats Grid */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {stats.map((stat) => (
           <Link key={stat.label} href={stat.href}>
-            <Card className="hover:border-muted-foreground/30 transition-colors">
+            <Card
+              className={
+                "highlight" in stat && stat.highlight
+                  ? "border-brand-orange transition-colors hover:border-brand-orange/70"
+                  : "hover:border-muted-foreground/30 transition-colors"
+              }
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">
                   {stat.label}
@@ -105,6 +129,22 @@ export default async function AdminDashboardPage() {
           </Link>
         ))}
       </div>
+
+      <Link
+        href="/admin/sales"
+        className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-colors hover:border-muted-foreground/30"
+      >
+        <ChartColumn className="h-6 w-6 shrink-0 text-brand-orange" />
+        <div className="min-w-0 flex-1">
+          <p className="font-medium">Sales</p>
+          <p className="text-sm text-muted-foreground">
+            Money taken in, best sellers and customers. Download as CSV.
+          </p>
+        </div>
+        <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
+      </Link>
+
+      <OwnerAlertsCard />
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Upcoming Events */}
@@ -127,7 +167,7 @@ export default async function AdminDashboardPage() {
                       </p>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      {new Date(event.date + "T00:00:00").toLocaleDateString("en-US", {
+                      {formatEventDay(event.date, {
                         month: "short",
                         day: "numeric",
                       })}

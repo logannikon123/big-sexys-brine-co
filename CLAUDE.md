@@ -100,12 +100,11 @@ Docs-only and config-only changes skip steps 2 and 3, but still need step 1 if t
 - Never run `supabase config push` with the repo's `supabase/config.toml`. That file holds local
   development values (like `site_url = http://127.0.0.1:3000`) that would overwrite live settings.
 
-**Known gap, fix before the first new migration:** as of October 2026 the live database's migration
-history is empty, even though the three files in `supabase/migrations/` were applied by hand. The
-`contest_entries` table is not in any migration at all. Before anyone runs `supabase db push`, a
-one-time baseline has to happen in its own pull request: confirm each migration's changes exist live,
-mark them applied with `supabase migration repair --status applied <version>`, and add a migration
-that captures `contest_entries` as it exists today. Get Jesse's approval for that plan first.
+**Migration history:** the live history was set straight in October 2026 (#32). Every file in
+`supabase/migrations/` is marked applied on the live database, so `supabase db push` applies only
+new files. Before a real push, run `supabase db push --linked --dry-run` and check it lists only the
+file you expect. If it lists older files, stop and ask Jesse: running them again could undo live
+changes (the first migration renumbers every product's sort order).
 
 ### 7. Pull request descriptions are written for a beginner
 
@@ -161,6 +160,29 @@ git diff --cached | grep -nE '(^|[^A-Za-z])[A-Za-z]:[\\/]|/(Users|home)/'
 No output means the change is clean. If you find a leak before pushing, fix it and amend. If it was
 already pushed, tell Jesse and offer to rewrite the branch before merge.
 
+### 10. How Claude works with Jesse
+
+- **Work in parallel.** Split independent tasks across subagents or side sessions whenever you
+  can. Subagents never merge pull requests or push to the live database.
+- **Keep going.** When a task is done, start the next planned item right away. Never ask
+  "should I build X next?". Stop only when Jesse says pause, or for an approval below.
+- **Approval requests stand out.** Put each one on its own line, bold, all caps, with a red
+  marker and the real PR number. No polite filler. Examples:
+  `🔴 **OPEN PR FOR STEP 2 (SQUARE PAYMENT): AWAITING APPROVAL**`
+  `🔴 **MERGE PR #54: AWAITING APPROVAL**`
+  `🔴 **PUSH MIGRATION TO LIVE DATABASE: AWAITING APPROVAL**`
+- **Merging.** Claude may run `gh pr merge <number> --squash --delete-branch` itself, but only
+  after asking for that specific PR and getting "merge" in chat. If the app blocks the command,
+  give Jesse the GitHub button and the command instead of retrying.
+- **Show the tests.** Every request to open or merge a PR includes a ✅/❌ table of each check:
+  lint, build, local site against live data, migration dry run (if any), and the live check
+  after deploy or database push. Say which are not done and why. Never call a PR tested
+  without this table.
+- **Dashboard steps in full.** When Jesse must change something by hand (Vercel, Square, DNS),
+  give click-by-click steps up front: the page, add new or edit, every field, type (Secret or
+  Config), which environments to tick, what to leave alone, and whether a redeploy is needed.
+- **Be brief.** Get to the point.
+
 ## Automatic checks on every pull request
 
 `main` is protected. A pull request can merge only when these checks pass. Vercel runs its own
@@ -189,9 +211,27 @@ requests like any other: checks must pass, and Jesse approves the merge.
   logs, commits or pull requests. This repo is public, so anything committed is visible to everyone.
 - `.env.example` is committed on purpose and holds placeholders only. When you add a new setting, add
   its name to `.env.example` with a placeholder value, never the real one.
-- `SUPABASE_SERVICE_ROLE_KEY` bypasses all database security. Use it only in server code that needs it
-  (today, only `src/app/api/contest/route.ts`), and never in anything sent to the browser.
+- `SUPABASE_SERVICE_ROLE_KEY` bypasses all database security. Use it only in server code that needs it,
+  and never in anything sent to the browser. Today that is the contest form
+  (`src/app/api/contest/route.ts`), checkout (`src/lib/checkout/`), the Square webhook
+  (`src/lib/square-webhook.ts`), order alerts (`src/lib/orders/notify.ts`) and the customer order page
+  (`src/lib/orders/public-order.ts`). Checkout and the webhook are the only code that writes orders.
 - Production values are set in Vercel. Change them there, then ask Jesse whether to redeploy.
+- Online ordering (live since October 2026) uses these settings: `NEXT_PUBLIC_SQUARE_APPLICATION_ID`,
+  `NEXT_PUBLIC_SQUARE_LOCATION_ID`, `NEXT_PUBLIC_SQUARE_ENVIRONMENT`, `SQUARE_ACCESS_TOKEN`,
+  `SQUARE_WEBHOOK_SIGNATURE_KEY`, `SQUARE_WEBHOOK_URL`, `ORS_API_KEY`, `PUSHOVER_TOKEN`, `PUSHOVER_USER`
+  and `ORDER_ALERT_EMAIL`. Jesse sets the real values in Vercel himself; never ask for them in chat.
+  Preview and Development use Square sandbox values, and Production uses live values. Only
+  `NEXT_PUBLIC_` settings reach the browser, so they hold IDs only, never secrets. Server code gets
+  its Square client from `src/lib/square.ts`.
+- The Square webhook (`/api/square/webhook`) is set up in Square's Production settings only, pointing
+  at `https://bigsexysbrine.co/api/square/webhook`. Preview copies sit behind Vercel's login, so there
+  is no sandbox webhook.
+- `RESEND_API_KEY` is set in Vercel for Production only, so preview copies send no email. Local
+  copies use the key in `.env.local`.
+- `CRON_SECRET` (Production only) lets Vercel run the daily tax rate reminder
+  (`/api/cron/tax-rate-reminder`, scheduled in `vercel.json`). Without it the reminder refuses to
+  run. The reminder dates live in `src/lib/tax-reminders.ts`.
 
 ## Commands
 
@@ -282,15 +322,41 @@ sign out, and never sign in to a different account.
 
 ## Open items to know about
 
-Security findings from the October 2026 review that are still open:
+All three security findings from the October 2026 review are fixed: the inbound email hook was
+removed (#28), rich text is cleaned before display (#29), and only tagged admins can use the admin
+(#31 for the site's code, #34 for the database rules).
 
-1. Any logged-in Supabase user counts as an admin (`src/lib/supabase/auth-guard.ts` and the
-   row-level security policies). New sign-ups are now turned off in Supabase, but the code still needs
-   an admin allow-list.
-2. Rich text from the admin is shown without being cleaned first (`src/components/ui/rich-text-content.tsx`).
-3. The inbound email webhook does not check Resend's signature (`src/app/api/email/inbound/route.ts`).
+How admin access works:
+
+- An account is an admin only if it carries the tag `app_metadata.role = "admin"`. The site checks
+  it in `src/lib/supabase/is-admin.ts`, and the database checks it in `public.is_admin()`, which
+  every write rule uses. Signing in is not enough.
+- Only the Supabase dashboard or the service role key can change `app_metadata`, so users can't
+  tag themselves. New sign-ups are turned off in Supabase. Leave them off.
+- To add an admin: create the user in the Supabase dashboard (Authentication, Users), then set the
+  tag. This is a change to a live account, so get Jesse's OK first. One way:
+  `supabase db query --linked "update auth.users set raw_app_meta_data = raw_app_meta_data || '{\"role\":\"admin\"}'::jsonb where email = '<email>'"`.
+  To remove one, delete the `role` key the same way.
+- The tag travels in the sign-in token, which renews about once an hour. After adding or removing
+  a tag, the person should sign out and back in.
+- A new table that admins write to needs its own rules using `(select public.is_admin())`, written
+  in a migration. Copy the pattern in `supabase/migrations/20261014061425_admin_only_rules.sql`.
 
 Other known issues:
 
+- Mail sent to any @bigsexysbrine.co address forwards to the business Gmail through ImprovMX (free
+  plan, catch-all alias, Jesse's account). Its records live in Vercel DNS on the root domain: two MX
+  records (`mx1.improvmx.com` and `mx2.improvmx.com`) and an SPF TXT record. Don't remove them. To
+  test forwarding, send from an account other than the business Gmail, because Gmail hides mail you
+  send to yourself.
+- The old inbound email hook (`src/app/api/email/inbound/route.ts`) was removed in October 2026. It
+  had no signature check and never received mail. ImprovMX does that job now, so don't bring it back.
+- Resend, which sends the contact and contest form emails and the order emails, is Nick's account.
+  Its records live in Vercel DNS: the DKIM TXT record `resend._domainkey`, plus an MX record
+  (`feedback-smtp.us-east-1.amazonses.com`, priority 10) and an SPF TXT record
+  (`v=spf1 include:amazonses.com ~all`) on `send.bigsexysbrine.co`, added on 2026-10-20. Before
+  that, Resend refused every email from the domain. Resend's page shows the domain as "partially
+  verified" because its optional receiving feature wants the root MX record, which ImprovMX uses.
+  Leave receiving off.
 - Product photos in Supabase Storage are 11 to 17 MB each. The admin uploader should shrink images
   before upload.

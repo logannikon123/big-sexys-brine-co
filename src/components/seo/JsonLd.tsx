@@ -1,4 +1,5 @@
 import type { Product, Event as EventType } from "@/types";
+import { toPlainText } from "@/lib/plain-text";
 
 interface JsonLdProps {
   data: Record<string, unknown>;
@@ -54,13 +55,28 @@ export function LocalBusinessJsonLd() {
 }
 
 export function ProductJsonLd({ product }: { product: Product }) {
+  // Search engines show a price only when the product has one.
+  const offers =
+    product.priceCents != null
+      ? {
+          "@type": "Offer",
+          price: (product.priceCents / 100).toFixed(2),
+          priceCurrency: "USD",
+          availability:
+            product.soldOnline && !product.soldOut
+              ? "https://schema.org/InStock"
+              : "https://schema.org/OutOfStock",
+          url: `${SITE_URL}/products/${product.slug}`,
+        }
+      : undefined;
+
   return (
     <JsonLd
       data={{
         "@context": "https://schema.org",
         "@type": "Product",
         name: product.name,
-        description: product.description,
+        description: toPlainText(product.description),
         image: absoluteUrl(product.image),
         brand: {
           "@type": "Brand",
@@ -71,6 +87,7 @@ export function ProductJsonLd({ product }: { product: Product }) {
           name: "Big Sexy's Brine Co.",
         },
         category: product.category,
+        ...(offers && { offers }),
       }}
     />
   );
@@ -83,7 +100,7 @@ export function EventJsonLd({ event }: { event: EventType }) {
         "@context": "https://schema.org",
         "@type": "Event",
         name: event.name,
-        description: event.description || `${event.name} - Big Sexy's Brine Co.`,
+        description: toPlainText(event.description) || `${event.name} - Big Sexy's Brine Co.`,
         startDate: event.date,
         location: {
           "@type": "Place",

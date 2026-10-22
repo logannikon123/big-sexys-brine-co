@@ -20,6 +20,10 @@ export interface Product {
   image: string;
   images?: ProductImage[];
   featured?: boolean;
+  /** Price in cents. Null when the product has no online price. */
+  priceCents?: number | null;
+  soldOnline?: boolean;
+  soldOut?: boolean;
 }
 
 export interface Event {
@@ -34,6 +38,21 @@ export interface Event {
   address?: string;
   type: "market" | "festival" | "pop-up" | "class";
   description?: string;
+}
+
+/** A store that carries the jars, shown on the Find Us page. */
+export interface RetailLocation {
+  id: number;
+  name: string;
+  /** Full street address, linked to Google Maps on the page. */
+  address: string;
+  /** Opening hours as free text, like "Tue to Sun, 10am to 6pm". */
+  hours: string | null;
+  image_url: string | null;
+  /** Where online orders are picked up. Shows an "Online order pickup" badge. */
+  is_pickup_location: boolean;
+  is_visible: boolean;
+  sort_order: number;
 }
 
 export interface ClassInfo {

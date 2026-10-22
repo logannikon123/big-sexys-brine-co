@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { requireAuthAction } from "@/lib/supabase/auth-guard";
 import { revalidatePath } from "next/cache";
 import { revalidateTag } from "next/cache";
+import { storeSettingsSchema, type StoreSettings } from "@/lib/store-settings";
+import { retailLocationSchema, type RetailLocationInput } from "@/lib/retail-locations";
 
 /**
  * Revalidate all product-related pages and caches.
@@ -27,6 +29,12 @@ function revalidateEvents() {
   revalidatePath("/events", "layout");
   revalidatePath("/", "layout");
   revalidateTag("events", { expire: 0 });
+}
+
+function revalidateRetail() {
+  revalidatePath("/admin/retail", "layout");
+  revalidatePath("/events", "layout");
+  revalidateTag("retail-locations", { expire: 0 });
 }
 
 function revalidateTestimonials() {
@@ -58,9 +66,11 @@ export async function clearAllCache() {
   revalidateTag("products", { expire: 0 });
   revalidateTag("product-images", { expire: 0 });
   revalidateTag("events", { expire: 0 });
+  revalidateTag("retail-locations", { expire: 0 });
   revalidateTag("testimonials", { expire: 0 });
   revalidateTag("class-info", { expire: 0 });
   revalidateTag("gallery", { expire: 0 });
+  revalidateTag("home-banner", { expire: 0 });
   // Full route tree — nukes route cache for public + admin
   revalidatePath("/", "layout");
   revalidatePath("/admin", "layout");
@@ -146,6 +156,9 @@ export async function createProduct(data: {
   category_ids: number[];
   image_url: string | null;
   featured: boolean;
+  price_cents: number | null;
+  sold_online: boolean;
+  sold_out: boolean;
   images?: { url: string; alt: string | null; sort_order: number; is_primary: boolean }[];
 }) {
   await requireAuthAction();
@@ -158,42 +171,16 @@ export async function createProduct(data: {
     productData.image_url = primary.url;
   }
 
-  const { data: maxOrder } = await supabase
-    .from("products")
-    .select("sort_order")
-    .order("sort_order", { ascending: false })
-    .limit(1)
-    .single();
-  const sort_order = (maxOrder?.sort_order ?? -1) + 1;
-
-  const { data: inserted, error } = await supabase
-    .from("products")
-    .insert({ ...productData, sort_order })
-    .select("id")
-    .single();
+  // One database call saves the product, its categories and its photos
+  // together (see the save_product migration), so a failure can't leave
+  // half a save behind.
+  const { error } = await supabase.rpc("save_product", {
+    p_id: null,
+    p_product: productData,
+    p_category_ids: category_ids,
+    p_images: images ?? [],
+  });
   if (error) throw new Error(error.message);
-
-  // Insert category associations
-  if (category_ids.length > 0) {
-    const { error: catError } = await supabase
-      .from("product_categories")
-      .insert(category_ids.map((cid) => ({ product_id: inserted.id, category_id: cid })));
-    if (catError) throw new Error(catError.message);
-  }
-
-  // Insert product images
-  if (images && images.length > 0) {
-    const { error: imgError } = await supabase.from("product_images").insert(
-      images.map((img) => ({
-        product_id: inserted.id,
-        url: img.url,
-        alt: img.alt,
-        sort_order: img.sort_order,
-        is_primary: img.is_primary,
-      }))
-    );
-    if (imgError) throw new Error(imgError.message);
-  }
 
   revalidateProducts(data.slug);
 }
@@ -212,6 +199,9 @@ export async function updateProduct(
     category_ids: number[];
     image_url: string | null;
     featured: boolean;
+    price_cents: number | null;
+    sold_online: boolean;
+    sold_out: boolean;
     images?: { url: string; alt: string | null; sort_order: number; is_primary: boolean }[];
   }
 ) {
@@ -225,34 +215,17 @@ export async function updateProduct(
     productData.image_url = primary.url;
   }
 
-  const { error } = await supabase.from("products").update(productData).eq("id", id);
+  // One database call saves the product, its categories and its photos
+  // together (see the save_product migration), so a failure can't leave a
+  // product with no categories or no photos. Leaving images out keeps the
+  // current photos.
+  const { error } = await supabase.rpc("save_product", {
+    p_id: id,
+    p_product: productData,
+    p_category_ids: category_ids,
+    p_images: images ?? null,
+  });
   if (error) throw new Error(error.message);
-
-  // Replace category associations
-  await supabase.from("product_categories").delete().eq("product_id", id);
-  if (category_ids.length > 0) {
-    const { error: catError } = await supabase
-      .from("product_categories")
-      .insert(category_ids.map((cid) => ({ product_id: id, category_id: cid })));
-    if (catError) throw new Error(catError.message);
-  }
-
-  // Replace product images
-  if (images !== undefined) {
-    await supabase.from("product_images").delete().eq("product_id", id);
-    if (images.length > 0) {
-      const { error: imgError } = await supabase.from("product_images").insert(
-        images.map((img) => ({
-          product_id: id,
-          url: img.url,
-          alt: img.alt,
-          sort_order: img.sort_order,
-          is_primary: img.is_primary,
-        }))
-      );
-      if (imgError) throw new Error(imgError.message);
-    }
-  }
 
   revalidateProducts(data.slug);
 }
@@ -349,6 +322,61 @@ export async function updateEventOrder(items: { id: number; sort_order: number }
   revalidateEvents();
 }
 
+// Retail locations (stores that carry the jars, on the Find Us page)
+function parseRetailLocation(data: RetailLocationInput) {
+  const parsed = retailLocationSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(parsed.error.issues[0]?.message ?? "Check the form.");
+  }
+  return parsed.data;
+}
+
+export async function createRetailLocation(data: RetailLocationInput) {
+  await requireAuthAction();
+  const row = parseRetailLocation(data);
+  const supabase = await createClient();
+  const { data: maxOrder } = await supabase
+    .from("retail_locations")
+    .select("sort_order")
+    .order("sort_order", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sort_order = (maxOrder?.sort_order ?? -1) + 1;
+  const { error } = await supabase.from("retail_locations").insert({ ...row, sort_order });
+  if (error) throw new Error(error.message);
+  revalidateRetail();
+}
+
+export async function updateRetailLocation(id: number, data: RetailLocationInput) {
+  await requireAuthAction();
+  const row = parseRetailLocation(data);
+  const supabase = await createClient();
+  const { error } = await supabase.from("retail_locations").update(row).eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidateRetail();
+}
+
+export async function deleteRetailLocation(id: number) {
+  await requireAuthAction();
+  const supabase = await createClient();
+  const { error } = await supabase.from("retail_locations").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidateRetail();
+}
+
+export async function updateRetailLocationOrder(items: { id: number; sort_order: number }[]) {
+  await requireAuthAction();
+  const supabase = await createClient();
+  for (const item of items) {
+    const { error } = await supabase
+      .from("retail_locations")
+      .update({ sort_order: item.sort_order })
+      .eq("id", item.id);
+    if (error) throw new Error(error.message);
+  }
+  revalidateRetail();
+}
+
 // Testimonials
 export async function createTestimonial(data: {
   quote: string;
@@ -420,6 +448,131 @@ export async function updateClassInfo(data: {
   const { error } = await supabase.from("class_info").update(data).eq("id", 1);
   if (error) throw new Error(error.message);
   revalidateClassInfo();
+}
+
+// Store settings
+/**
+ * Save the single store settings row. Returns an error message instead of
+ * throwing, because the live site hides thrown messages and Jesse needs to
+ * see which setting to fix.
+ */
+export async function updateStoreSettings(
+  data: StoreSettings
+): Promise<{ error?: string }> {
+  await requireAuthAction();
+  const parsed = storeSettingsSchema.safeParse(data);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Those settings aren't valid." };
+  }
+  const supabase = await createClient();
+
+  // Delivery prices depend on distance from the starting point, so the store
+  // can't open with delivery on until the starting point is saved.
+  if (parsed.data.orders_open && parsed.data.delivery_enabled) {
+    const { data: origin } = await supabase
+      .from("store_private_settings")
+      .select("delivery_origin_lat")
+      .eq("id", 1)
+      .maybeSingle();
+    if (origin?.delivery_origin_lat == null) {
+      return {
+        error:
+          "Local delivery is on, but the delivery starting point isn't saved yet. Save your address below, or turn delivery off.",
+      };
+    }
+  }
+
+  const { data: saved, error } = await supabase
+    .from("store_settings")
+    .update(parsed.data)
+    .eq("id", 1)
+    .select("id");
+  if (error) return { error: error.message };
+  if (!saved || saved.length === 0) {
+    return { error: "The store settings weren't saved. The settings row is missing, or this account can't change it." };
+  }
+  revalidatePath("/admin/store");
+  // The public pages show or hide the cart depending on these settings.
+  revalidatePath("/", "layout");
+  revalidateTag("store-settings", { expire: 0 });
+  return {};
+}
+
+interface CensusMatch {
+  matchedAddress?: string;
+  coordinates?: { x?: number; y?: number };
+}
+
+/**
+ * Save the address delivery distance is measured from. The free US Census
+ * geocoder turns it into a map position (latitude and longitude). Returns the
+ * address the Census matched, so the admin can check it is the right place.
+ */
+export async function updateDeliveryOrigin(
+  address: string
+): Promise<{ matchedAddress?: string; error?: string }> {
+  await requireAuthAction();
+  const typed = typeof address === "string" ? address.trim() : "";
+  if (typed === "") return { error: "Type an address first." };
+  if (typed.length > 200) return { error: "That address is too long." };
+
+  const url =
+    "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress" +
+    `?address=${encodeURIComponent(typed)}&benchmark=Public_AR_Current&format=json`;
+
+  let matches: CensusMatch[];
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      return { error: "The address lookup service isn't answering. Try again in a few minutes." };
+    }
+    const body = await res.json();
+    matches = body?.result?.addressMatches ?? [];
+  } catch {
+    return { error: "The address lookup service isn't answering. Try again in a few minutes." };
+  }
+
+  if (matches.length === 0) {
+    return {
+      error:
+        "No match for that address. Check the spelling and include the street, city, state and ZIP code.",
+    };
+  }
+  if (matches.length > 1) {
+    return {
+      error:
+        "That address matches more than one place. Add the city, state and ZIP code so it matches just one.",
+    };
+  }
+
+  const match = matches[0];
+  const lat = match.coordinates?.y;
+  const lon = match.coordinates?.x;
+  const matchedAddress = match.matchedAddress;
+  if (typeof lat !== "number" || typeof lon !== "number" || !matchedAddress) {
+    return { error: "The address lookup gave an answer the site can't read. Try again later." };
+  }
+
+  const supabase = await createClient();
+  const { data: saved, error } = await supabase
+    .from("store_private_settings")
+    .update({
+      delivery_origin_address: typed,
+      delivery_origin_lat: lat,
+      delivery_origin_lon: lon,
+      delivery_origin_matched_address: matchedAddress,
+    })
+    .eq("id", 1)
+    .select("id");
+  if (error) return { error: error.message };
+  if (!saved || saved.length === 0) {
+    return { error: "The address wasn't saved. The private settings row is missing, or this account can't change it." };
+  }
+  revalidatePath("/admin/store");
+  return { matchedAddress };
 }
 
 // Gallery
