@@ -7,13 +7,25 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { Order, OrderItem } from "@/types/orders";
+import type {
+  Order,
+  OrderEmail,
+  OrderEmailKind,
+  OrderItem,
+  OrderRefund,
+} from "@/types/orders";
 import {
+  OPEN_STATUSES,
   formatDeliveryDate,
   formatOrderTime,
   fulfillmentLabel,
 } from "./order-flow";
-import { OrderStatusBadge, RushBadge, SandboxBadge } from "./order-badges";
+import {
+  OrderMoneyBadges,
+  OrderStatusBadge,
+  RushBadge,
+  SandboxBadge,
+} from "./order-badges";
 import { OrderStatusButtons } from "./order-status-buttons";
 import { OrderTrackingForm } from "./order-tracking-form";
 import { OrderNoteForm } from "./order-note-form";
@@ -21,6 +33,8 @@ import { OrderNoteForm } from "./order-note-form";
 interface OrderDetailProps {
   order: Order;
   items: OrderItem[];
+  refunds: OrderRefund[];
+  emails: OrderEmail[];
   demo: boolean;
 }
 
@@ -230,7 +244,19 @@ function Customer({ order }: { order: Order }) {
   );
 }
 
-function Money({ order }: { order: Order }) {
+/** Square's refund states, in plain words. Completed refunds show no word. */
+function refundStateNote(status: string): string | null {
+  switch (status) {
+    case "COMPLETED":
+      return null;
+    case "PENDING":
+      return "Waiting on Square";
+    default:
+      return "Didn't go through";
+  }
+}
+
+function Money({ order, refunds }: { order: Order; refunds: OrderRefund[] }) {
   const kept = order.total_cents - order.refunded_cents;
   return (
     <Section title="Money">
@@ -285,9 +311,33 @@ function Money({ order }: { order: Order }) {
         <Row label="Total paid" strong>
           {formatPrice(order.total_cents)}
         </Row>
+        {refunds.map((refund) => {
+          const note = refundStateNote(refund.status);
+          return (
+            <Row
+              key={refund.id}
+              label={
+                <>
+                  Refund{" "}
+                  {refund.source === "backfill"
+                    ? "(made before refunds were listed one by one)"
+                    : formatOrderTime(refund.refunded_at)}
+                  {note && <span className="block text-xs">{note}</span>}
+                  {refund.reason && (
+                    <span className="block text-xs">{refund.reason}</span>
+                  )}
+                </>
+              }
+            >
+              <span className={note ? "line-through" : undefined}>
+                -{formatPrice(refund.amount_cents)}
+              </span>
+            </Row>
+          );
+        })}
         {order.refunded_cents > 0 && (
           <>
-            <Row label="Refunded in Square">
+            <Row label="Refunded in Square, in all">
               -{formatPrice(order.refunded_cents)}
             </Row>
             <Row label="You keep" strong>
@@ -341,6 +391,70 @@ function Payment({ order }: { order: Order }) {
   );
 }
 
+const EMAIL_LABEL: Record<OrderEmailKind, string> = {
+  ready_for_pickup: "Ready for pickup email",
+  out_for_delivery: "Out for delivery email",
+  shipped: "Shipped email",
+  delivered: "Delivered email",
+  cancelled: "Cancelled email",
+  refunded: "Refund email",
+};
+
+/** The emails sent to the customer after the receipt, oldest first. */
+function Emails({ emails }: { emails: OrderEmail[] }) {
+  if (emails.length === 0) return null;
+  return (
+    <div className="space-y-1 border-t border-border pt-3 text-xs">
+      <p className="font-medium">Emails to the customer</p>
+      <dl className="space-y-1">
+        {emails.map((email) => (
+          <div key={email.id} className="flex justify-between gap-4">
+            <dt className="text-muted-foreground">{EMAIL_LABEL[email.kind]}</dt>
+            <dd className="text-right">
+              {email.sent_at ? (
+                `Sent ${formatOrderTime(email.sent_at)}`
+              ) : email.error ? (
+                <span className="text-red-300">Didn&apos;t send</span>
+              ) : (
+                "Sending"
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/** A box at the top of Next step when a refund or dispute needs a word. */
+function MoneyWarning({ order }: { order: Order }) {
+  const open = (OPEN_STATUSES as readonly string[]).includes(order.status);
+  let tone = "border-amber-500/40 bg-amber-500/10";
+  let text: string | null = null;
+
+  if (order.dispute_status === "open") {
+    tone = "border-red-500/40 bg-red-500/10";
+    text =
+      "The customer's bank is questioning this payment. Answer it under Disputes in your Square Dashboard. You can still finish the order here.";
+  } else if (order.dispute_status === "lost") {
+    tone = "border-red-500/40 bg-red-500/10";
+    text = "The bank sided with the customer and took the payment back.";
+  } else if (order.dispute_status === "won") {
+    tone = "border-emerald-500/40 bg-emerald-500/10";
+    text = "The bank sided with you on the card dispute. You keep the payment.";
+  } else if (order.refund_status === "full" && open) {
+    text =
+      "This order was refunded in full in Square. If you aren't sending the jars, cancel it.";
+  }
+
+  if (!text) return null;
+  return (
+    <div role="status" className={`rounded-md border p-3 text-sm ${tone}`}>
+      {text}
+    </div>
+  );
+}
+
 /** The steps done so far, oldest first. */
 function History({ order }: { order: Order }) {
   const steps: [string, string | null][] = [
@@ -354,6 +468,8 @@ function History({ order }: { order: Order }) {
       order.fulfilled_at,
     ],
     ["Cancelled", order.cancelled_at],
+    ["Card dispute opened", order.disputed_at],
+    ["Card dispute closed", order.dispute_closed_at],
   ];
   const done = steps.filter(
     (step): step is [string, string] => step[1] !== null
@@ -370,7 +486,13 @@ function History({ order }: { order: Order }) {
   );
 }
 
-export function OrderDetail({ order, items, demo }: OrderDetailProps) {
+export function OrderDetail({
+  order,
+  items,
+  refunds,
+  emails,
+  demo,
+}: OrderDetailProps) {
   const isShipping = order.fulfillment_type === "shipping";
 
   return (
@@ -388,6 +510,11 @@ export function OrderDetail({ order, items, demo }: OrderDetailProps) {
             Order #{order.order_number}
           </h1>
           <OrderStatusBadge status={order.status} className="text-sm" />
+          <OrderMoneyBadges
+            refundStatus={order.refund_status}
+            disputeStatus={order.dispute_status}
+            className="text-sm"
+          />
           {order.is_rush && <RushBadge />}
           {order.square_environment === "sandbox" && <SandboxBadge />}
         </div>
@@ -404,6 +531,7 @@ export function OrderDetail({ order, items, demo }: OrderDetailProps) {
         <div className="space-y-6 lg:col-start-3 lg:row-start-1">
           <Section title="Next step">
             <div className="space-y-4">
+              <MoneyWarning order={order} />
               <OrderStatusButtons
                 orderId={order.id}
                 orderNumber={order.order_number}
@@ -413,6 +541,7 @@ export function OrderDetail({ order, items, demo }: OrderDetailProps) {
                 demo={demo}
               />
               <History order={order} />
+              <Emails emails={emails} />
             </div>
           </Section>
           {isShipping && (
@@ -431,7 +560,7 @@ export function OrderDetail({ order, items, demo }: OrderDetailProps) {
           <HowTheyGetIt order={order} />
           <Items items={items} />
           <Customer order={order} />
-          <Money order={order} />
+          <Money order={order} refunds={refunds} />
           <Payment order={order} />
         </div>
 
@@ -447,7 +576,8 @@ export function OrderDetail({ order, items, demo }: OrderDetailProps) {
             <p className="font-medium">Waiving a fee or giving a discount</p>
             <p className="mt-1 text-muted-foreground">
               To waive a fee or give a discount, refund that amount in your
-              Square Dashboard. The order updates here automatically.
+              Square Dashboard. The order updates here automatically, keeps
+              its next step, and the customer gets a refund email.
             </p>
           </div>
         </div>

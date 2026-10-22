@@ -7,8 +7,13 @@
  *
  * Each action returns { error } with a plain message when something expected
  * goes wrong, so Jesse sees what happened instead of a crash.
+ *
+ * A step that has a customer email (ready, out for delivery, shipped,
+ * delivered, cancelled) sends it after the step is saved. The email never
+ * holds up or undoes the step: see notifyOrderStep in src/lib/orders/notify.ts.
  */
 
+import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAuthAction } from "@/lib/supabase/auth-guard";
@@ -23,6 +28,7 @@ import type {
   OrderAdminUpdate,
   OrderStatus,
 } from "@/types/orders";
+import { notifyOrderStep } from "@/lib/orders/notify";
 import { isOrderId } from "./order-data";
 
 type ActionResult = { error?: string };
@@ -73,8 +79,8 @@ export async function updateOrderStatus(
     [MOVE_TIMESTAMP[nextStatus]]: new Date().toISOString(),
   };
 
-  // Only change the order if its status is still the one checked above. If
-  // Square changed it in the meantime (a refund, say), nothing is saved.
+  // Only change the order if its step is still the one checked above. If it
+  // changed in the meantime (Jesse on another phone, say), nothing is saved.
   const { data: saved, error } = await supabase
     .from("orders")
     .update(update)
@@ -85,6 +91,8 @@ export async function updateOrderStatus(
   if (!saved || saved.length === 0) return { error: NOT_SAVED };
 
   revalidateOrder(id);
+  // Email the customer once Jesse has his answer.
+  after(() => notifyOrderStep(id, nextStatus));
   return {};
 }
 

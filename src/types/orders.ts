@@ -8,6 +8,11 @@
  * them with the service role key.
  */
 
+/**
+ * The order's step. Square sets pending_payment, payment_failed and paid;
+ * Jesse sets the rest. Refunds and disputes live in their own fields, so
+ * they never wipe out the step.
+ */
 export const ORDER_STATUSES = [
   "pending_payment",
   "payment_failed",
@@ -17,12 +22,15 @@ export const ORDER_STATUSES = [
   "shipped",
   "fulfilled",
   "cancelled",
-  "refunded",
-  "partially_refunded",
-  "disputed",
 ] as const;
 
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+/** How much went back: worked out by the database from refunded_cents. */
+export type RefundStatus = "none" | "partial" | "full";
+
+/** Where a card dispute stands. Null on the order means no dispute. */
+export type DisputeStatus = "open" | "won" | "lost";
 
 export const FULFILLMENT_TYPES = ["pickup", "local_delivery", "shipping"] as const;
 
@@ -81,6 +89,8 @@ export interface Order {
   tax_jurisdiction: string | null;
   /** Given back through Square, kept up to date by the webhook. */
   refunded_cents: number;
+  /** Set by the database from refunded_cents and total_cents. */
+  refund_status: RefundStatus;
   currency: string;
 
   square_order_id: string | null;
@@ -90,6 +100,11 @@ export interface Order {
   card_last4: string | null;
   payment_error_code: string | null;
   square_environment: SquareEnvironment | null;
+
+  dispute_status: DisputeStatus | null;
+  square_dispute_id: string | null;
+  disputed_at: string | null;
+  dispute_closed_at: string | null;
 
   tracking_number: string | null;
   tracking_carrier: string | null;
@@ -135,6 +150,50 @@ export interface OrderItem {
   quantity: number;
   /** unit_price_cents * quantity */
   line_total_cents: number;
+}
+
+/** One refund, from Square's refund messages (or copied in from before). */
+export interface OrderRefund {
+  id: number;
+  order_id: string;
+  /** Null only on rows copied in from before refunds were saved one by one. */
+  square_refund_id: string | null;
+  square_payment_id: string | null;
+  amount_cents: number;
+  /** Square's word: PENDING, COMPLETED, REJECTED or FAILED. */
+  status: string;
+  reason: string | null;
+  /** The split into jars, fees and tax. Null unless it is certain. */
+  jars_cents: number | null;
+  fees_cents: number | null;
+  tax_cents: number | null;
+  source: "square" | "backfill";
+  refunded_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** The emails sent to a customer after the receipt. */
+export const ORDER_EMAIL_KINDS = [
+  "ready_for_pickup",
+  "out_for_delivery",
+  "shipped",
+  "delivered",
+  "cancelled",
+  "refunded",
+] as const;
+
+export type OrderEmailKind = (typeof ORDER_EMAIL_KINDS)[number];
+
+export interface OrderEmail {
+  id: number;
+  order_id: string;
+  kind: OrderEmailKind;
+  /** Square's refund id for a refund email, empty for the rest. */
+  event_key: string;
+  created_at: string;
+  sent_at: string | null;
+  error: string | null;
 }
 
 export interface SquareWebhookEvent {

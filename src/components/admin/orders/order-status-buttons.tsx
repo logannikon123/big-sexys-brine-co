@@ -19,6 +19,7 @@ import {
   statusLabel,
   type AdminMoveStatus,
 } from "./order-flow";
+import { emailKindForStep } from "@/lib/orders/customer-emails";
 import type { FulfillmentType, OrderStatus } from "@/types/orders";
 
 interface OrderStatusButtonsProps {
@@ -38,14 +39,36 @@ function noMovesMessage(status: OrderStatus): string {
       return "The customer hasn't finished paying. Nothing to do yet.";
     case "payment_failed":
       return "The payment didn't go through, so there is nothing to pack.";
-    case "refunded":
-    case "partially_refunded":
-      return "Square sets refunds. Nothing to do here.";
-    case "disputed":
-      return "The customer's bank is questioning this payment. Check the Square Dashboard for what to do.";
+    case "cancelled":
+      return "This order is cancelled. Nothing left to do.";
     default:
       return "This order is finished. Nothing left to do.";
   }
+}
+
+/** The step in the words of the email note: "ready for pickup or cancelled". */
+const EMAIL_STEP_WORDS: Record<AdminMoveStatus, string> = {
+  ready_for_pickup: "ready for pickup",
+  out_for_delivery: "out for delivery",
+  shipped: "shipped",
+  fulfilled: "delivered",
+  cancelled: "cancelled",
+};
+
+/** Which of these steps email the customer, in a sentence, or null for none. */
+function emailNote(
+  moves: readonly AdminMoveStatus[],
+  type: FulfillmentType
+): string | null {
+  const words = moves
+    .filter((m) => emailKindForStep(m, type))
+    .map((m) => EMAIL_STEP_WORDS[m]);
+  if (words.length === 0) return null;
+  const list =
+    words.length === 1
+      ? words[0]
+      : `${words.slice(0, -1).join(", ")} or ${words[words.length - 1]}`;
+  return `The customer gets an email when you mark this order ${list}.`;
 }
 
 export function OrderStatusButtons({
@@ -64,6 +87,7 @@ export function OrderStatusButtons({
   const forward = moves.filter((m) => m !== "cancelled");
   const canCancel = moves.includes("cancelled");
   const doneWords = fulfillmentType === "pickup" ? "picked up" : "delivered";
+  const note = emailNote(moves, fulfillmentType);
 
   function closeDialogs() {
     setConfirmCancel(false);
@@ -138,20 +162,17 @@ export function OrderStatusButtons({
         </Button>
       )}
 
-      {moves.length > 0 && (
-        <p className="text-xs text-muted-foreground">
-          Customer emails for these steps are coming soon.
-        </p>
-      )}
+      {note && <p className="text-xs text-muted-foreground">{note}</p>}
 
       <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
         <AlertDialogHeader>
           <AlertDialogTitle>Cancel order #{orderNumber}?</AlertDialogTitle>
           <AlertDialogDescription>
-            This marks the order cancelled. It does not give the customer
-            their money back. To do that, open the payment in your Square
-            Dashboard and refund it there. The refund then shows up on this
-            order.
+            This marks the order cancelled and emails the customer to say
+            so. It does not give the customer their money back. To do that,
+            open the payment in your Square Dashboard and refund it there.
+            The refund then shows up on this order, and the customer gets
+            a refund email.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

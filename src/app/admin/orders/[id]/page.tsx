@@ -19,7 +19,13 @@ export default async function AdminOrderPage({
     // Extra room on phones so the menu button doesn't cover the back link.
     <div className="space-y-6 pt-8 lg:pt-0">
       {demo && <DemoBanner />}
-      <OrderDetail order={found.order} items={found.items} demo={demo} />
+      <OrderDetail
+        order={found.order}
+        items={found.items}
+        refunds={found.refunds}
+        emails={found.emails}
+        demo={demo}
+      />
     </div>
   );
 }
