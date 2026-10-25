@@ -5,7 +5,9 @@ interface JsonLdProps {
   data: Record<string, unknown>;
 }
 
-const SITE_URL = "https://bigsexysbrine.co";
+const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL || "https://bigsexysbrine.co"
+).trim();
 
 /** Supabase images are already full URLs; only local paths need the site prefix. */
 function absoluteUrl(path: string) {
@@ -32,9 +34,9 @@ export function LocalBusinessJsonLd() {
         name: "Big Sexy's Brine Co.",
         description:
           "Small-batch artisan preserved foods handcrafted in Wheat Ridge, Colorado.",
-        url: "https://bigsexysbrine.co",
-        logo: "https://bigsexysbrine.co/images/logo/logo-transparent.png",
-        image: "https://bigsexysbrine.co/images/logo/logo-transparent.png",
+        url: SITE_URL,
+        logo: `${SITE_URL}/images/logo/logo-transparent.png`,
+        image: `${SITE_URL}/images/logo/logo-transparent.png`,
         telephone: "+1-720-354-0527",
         email: "bigsexysbrineco@gmail.com",
         address: {
@@ -110,7 +112,7 @@ export function EventJsonLd({ event }: { event: EventType }) {
         organizer: {
           "@type": "Organization",
           name: "Big Sexy's Brine Co.",
-          url: "https://bigsexysbrine.co",
+          url: SITE_URL,
         },
         eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
       }}
@@ -130,7 +132,7 @@ export function CourseJsonLd() {
         provider: {
           "@type": "Organization",
           name: "Big Sexy's Brine Co.",
-          url: "https://bigsexysbrine.co",
+          url: SITE_URL,
         },
         offers: {
           "@type": "Offer",
@@ -161,7 +163,7 @@ export function BreadcrumbJsonLd({ items }: { items: { name: string; href: strin
           "@type": "ListItem",
           position: i + 1,
           name: item.name,
-          item: `https://bigsexysbrine.co${item.href}`,
+          item: `${SITE_URL}${item.href}`,
         })),
       }}
     />
