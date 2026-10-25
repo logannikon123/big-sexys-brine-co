@@ -1,6 +1,8 @@
 # Dependabot opens pull requests to keep libraries up to date.
 # Security fixes arrive as soon as GitHub knows about them; routine updates come once a week,
 # grouped into one pull request per kind so the list stays short.
+# Major version upgrades are skipped for routine updates: they can need code changes,
+# so we plan them on purpose and test them locally first.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -9,6 +11,9 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       minor-and-patch:
         update-types: [minor, patch]
