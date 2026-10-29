@@ -10,6 +10,8 @@ import { getQuote, storeIsOpen, type Quote, type QuoteError } from "@/lib/checko
 import { findSquarePayment, readSquareFailure, type SquareFailure } from "@/lib/checkout/square-payment";
 import type { PayInput } from "@/lib/checkout/schema";
 import { saveTaxParts } from "@/lib/checkout/tax-parts";
+import { returnStockAfterFailure, stockAfterPaid, takeOrderStock } from "@/lib/orders/stock";
+import { shortMessage } from "@/lib/stock";
 import { formatPrice } from "@/lib/utils";
 
 /**
@@ -18,7 +20,10 @@ import { formatPrice } from "@/lib/utils";
  * 1. Work out the price again from the database. If it no longer matches the
  *    total the customer saw, charge nothing and send back the new price.
  * 2. Save the order and its jars as "pending_payment". The service role key
- *    writes them, because only checkout and the Square webhook may.
+ *    writes them, because only checkout and the Square webhook may. Then
+ *    take the jars off the stock counts (src/lib/orders/stock.ts). If
+ *    another order got the last jars first, take the order back out and
+ *    charge nothing.
  * 3. Ask Square to take the money. The checkout ID is Square's idempotency
  *    key: if the same checkout is sent twice (a double click, or a retry
  *    after a lost connection), Square charges once and answers the same way.
@@ -26,7 +31,8 @@ import { formatPrice } from "@/lib/utils";
  *    checkout page sends the same card code again and the request is built
  *    from the saved order.
  * 4. Mark the order "paid", with the card brand, last 4 digits and receipt
- *    link, or "payment_failed" with Square's reason.
+ *    link, or "payment_failed" with Square's reason. A failed card puts the
+ *    jars back on the stock counts.
  *
  * Each checkout ID makes at most one order. A retry with the same ID finds
  * that order again instead of making a second one, and first asks Square
@@ -269,6 +275,50 @@ async function saveOrder(input: PayInput, quote: Quote): Promise<ExistingOrder |
   return order;
 }
 
+/** Take a saved order back out, before any card was charged. */
+async function removeOrder(order: ExistingOrder) {
+  const supabase = await createServiceClient();
+  const { error } = await supabase.from("orders").delete().eq("id", order.id);
+  if (error) console.error(`Pay: couldn't remove unpaid order #${order.order_number}:`, error.message);
+}
+
+/**
+ * Take the new order's jars off the stock counts before charging the card.
+ * Returns null when the jars are held, or the answer for the customer when
+ * they aren't. Either way, a refused order is taken back out: no card was
+ * charged.
+ */
+async function holdStock(order: ExistingOrder): Promise<PayError | null> {
+  let take;
+  try {
+    take = await takeOrderStock(order.id, false);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.error("Pay:", message);
+    alertSaveFailed(`the stock count for order #${order.order_number}`, message);
+    await removeOrder(order);
+    return SAVE_FAILED;
+  }
+  if (take.status === "taken" || take.status === "already") return null;
+  // A second request for the same checkout found the order just before the
+  // first one took it back out.
+  if (take.status === "not_found") return SAVE_FAILED;
+
+  // Someone else bought the jars between the quote and now.
+  await removeOrder(order);
+  const itemProblems = take.short.map((line) => ({
+    productId: line.product_id,
+    reason: line.available > 0 ? ("not_enough" as const) : ("sold_out" as const),
+    message: shortMessage(line.name, line.available),
+    ...(line.available > 0 ? { available: line.available } : {}),
+  }));
+  return fail(
+    "items_unavailable",
+    "Someone just bought some of the same jars. Nothing was charged. Change your cart, then try again.",
+    { itemProblems, retrySameCheckout: false }
+  );
+}
+
 /**
  * Update a pending order. Returns true if it changed. An order the webhook
  * has already marked is left alone, so it isn't marked (or emailed about)
@@ -403,14 +453,19 @@ async function recordPayment(
       status: "paid",
       paid_at: new Date().toISOString(),
     });
-    // Tell Jesse and send the receipt after the customer has their answer.
+    // Tell Jesse and send the receipt after the customer has their answer,
+    // and check the stock counts.
     const orderId = saved.id;
-    if (marked) after(() => notifyOrderPaid(orderId));
+    if (marked) {
+      after(() => notifyOrderPaid(orderId));
+      after(() => stockAfterPaid(orderId, saved.order_number));
+    }
     keepOptIn(input, orderId, context);
     return success(saved, false);
   }
   if (payment?.status === "FAILED" || payment?.status === "CANCELED") {
-    await markOrder(saved, { ...details, status: "payment_failed", payment_error_code: payment.status });
+    const failed = await markOrder(saved, { ...details, status: "payment_failed", payment_error_code: payment.status });
+    if (failed) after(() => returnStockAfterFailure(saved.id, saved.order_number));
     return fail("payment_declined", "Your card was declined. Try another card.", {
       retrySameCheckout: false,
     });
@@ -478,9 +533,11 @@ export async function placeOrder(
       );
     }
 
-    // 2. Save the order.
+    // 2. Save the order, and hold its jars.
     saved = await saveOrder(input, quote);
     if (!saved) return SAVE_FAILED;
+    const notHeld = await holdStock(saved);
+    if (notHeld) return notHeld;
   }
 
   // 3. Take the money.
@@ -499,7 +556,9 @@ export async function placeOrder(
   if (!attempt.ok && attempt.failure.kind === "rejected") {
     // Square answered, and took no money.
     const failure = attempt.failure;
-    await markOrder(saved, { status: "payment_failed", payment_error_code: failure.code });
+    const failed = await markOrder(saved, { status: "payment_failed", payment_error_code: failure.code });
+    const failedOrder = saved;
+    if (failed) after(() => returnStockAfterFailure(failedOrder.id, failedOrder.order_number));
     if (isDecline(failure)) {
       return fail("payment_declined", DECLINE_MESSAGES[failure.code] ?? "Your card was declined. Try another card.", {
         retrySameCheckout: false,

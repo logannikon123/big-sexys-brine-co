@@ -3,6 +3,7 @@ import { alertOwnerLater } from "@/lib/alerts";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getSquareClient } from "@/lib/square";
 import { notifyOrderPaid, notifyOrderRefund } from "@/lib/orders/notify";
+import { returnStockAfterFailure, stockAfterPaid } from "@/lib/orders/stock";
 import {
   planSquareChange,
   refundSplit,
@@ -21,6 +22,8 @@ import type { Order } from "@/types/orders";
  *   checkout where the card went through but the site lost Square's answer.
  *   The step changes only if the order is still where it was when read, so
  *   the webhook and checkout never both mark (or announce) the same order.
+ *   A paid order's jars come off the stock counts (if checkout didn't take
+ *   them already), and a failed one's go back (src/lib/orders/stock.ts).
  * - refund.created / refund.updated: money went back to the customer. Each
  *   refund is saved in order_refunds, the order's refunded amount comes from
  *   Square's payment record, and the customer gets an email. The order's
@@ -205,6 +208,10 @@ async function handlePayment(payment: PaymentFields, secondTry = false): Promise
 
   if (await updateOrderFrom(order.id, order.status, fields)) {
     if (plan.announcePaid) await notifyOrderPaid(order.id);
+    // Neither throws, so Square isn't asked to send a message the step
+    // change has already used up.
+    if (plan.status === "paid") await stockAfterPaid(order.id, order.order_number);
+    if (plan.status === "payment_failed") await returnStockAfterFailure(order.id, order.order_number);
     return;
   }
   // Checkout changed the step while this message was being read. Read the

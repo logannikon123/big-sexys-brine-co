@@ -3,6 +3,7 @@ import { unstable_cache } from "next/cache";
 import type { Product, ProductImage, Event, ClassInfo, Testimonial, RetailLocation } from "@/types";
 import type { StoreSettings } from "@/lib/store-settings";
 import { isEventUpcoming } from "@/lib/event-dates";
+import { isOutOfStock } from "@/lib/stock";
 
 // Fallback to JSON files if Supabase is not configured
 const useSupabase = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -401,6 +402,10 @@ function mapProduct(row: Record<string, unknown>): Product {
     featured: row.featured as boolean | undefined,
     priceCents: (row.price_cents as number | null | undefined) ?? null,
     soldOnline: (row.sold_online as boolean | undefined) ?? false,
-    soldOut: (row.sold_out as boolean | undefined) ?? false,
+    soldOut: isOutOfStock(
+      (row.sold_out as boolean | undefined) ?? false,
+      (row.stock_count as number | null | undefined) ?? null
+    ),
+    stockCount: (row.stock_count as number | null | undefined) ?? null,
   };
 }

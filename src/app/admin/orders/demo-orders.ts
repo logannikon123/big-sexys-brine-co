@@ -72,6 +72,9 @@ const blank: Omit<
   terms_accepted_at: null,
   terms_version: "2026-10",
   alerted_at: null,
+  // As if checkout took each order's jars off the stock counts.
+  stock_taken_at: "2026-10-19T15:00:00Z",
+  stock_returned_at: null,
   updated_at: "2026-10-19T15:00:00Z",
   paid_at: null,
   ready_at: null,
@@ -98,6 +101,7 @@ function item(
     unit_price_cents: unitPriceCents,
     quantity,
     line_total_cents: unitPriceCents * quantity,
+    stock_taken: quantity,
   };
 }
 

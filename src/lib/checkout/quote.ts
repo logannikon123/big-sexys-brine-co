@@ -13,6 +13,7 @@ import { estimatePostage, type PostageMethod } from "@/lib/checkout/postage";
 import { lookupFoodTax } from "@/lib/food-tax";
 import type { FoodTaxCollector, FoodTaxKind } from "@/lib/food-tax-rates";
 import { splitTaxCents } from "@/lib/tax-split";
+import { isShort, shortMessage } from "@/lib/stock";
 
 /**
  * The checkout price calculator. Given a cart and a way to get the jars
@@ -181,12 +182,14 @@ export interface Quote {
   quotedAt: string;
 }
 
-export type ItemProblemReason = "not_found" | "not_sold_online" | "sold_out" | "no_price";
+export type ItemProblemReason = "not_found" | "not_sold_online" | "sold_out" | "not_enough" | "no_price";
 
 export interface ItemProblem {
   productId: number;
   reason: ItemProblemReason;
   message: string;
+  /** For not_enough: the jars left, so the cart can offer to change to that. */
+  available?: number;
 }
 
 export type QuoteErrorCode =
@@ -233,8 +236,8 @@ const UNAVAILABLE = fail(
   "Online ordering isn't working right now. Please try again in a few minutes."
 );
 
-// Database reads are always fresh, never cached, so a price change or a
-// sold-out switch counts from the next quote on.
+// Database reads are always fresh, never cached, so a price change, a
+// sold-out switch or a new stock count counts from the next quote on.
 
 function noStoreFetch(input: RequestInfo | URL, init?: RequestInit) {
   return fetch(input, { ...init, cache: "no-store" });
@@ -256,12 +259,14 @@ interface ProductRow {
   price_cents: number | null;
   sold_online: boolean;
   sold_out: boolean;
+  /** Jars on hand, or null when Jesse doesn't track this product. */
+  stock_count: number | null;
 }
 
 async function loadProducts(ids: number[]): Promise<ProductRow[] | null> {
   const { data, error } = await publicClient()
     .from("products")
-    .select("id, name, size, price_cents, sold_online, sold_out")
+    .select("id, name, size, price_cents, sold_online, sold_out, stock_count")
     .in("id", ids);
   if (error) {
     console.error("Quote: couldn't read products:", error.message);
@@ -325,7 +330,7 @@ async function loadDeliveryOrigin(): Promise<{ lat: number; lon: number } | null
   return { lat, lon };
 }
 
-function itemProblem(productId: number, row: ProductRow | undefined): ItemProblem | null {
+function itemProblem(productId: number, qty: number, row: ProductRow | undefined): ItemProblem | null {
   if (!row) {
     return {
       productId,
@@ -340,8 +345,14 @@ function itemProblem(productId: number, row: ProductRow | undefined): ItemProble
       message: `${row.name} isn't sold online. You can find it at our markets.`,
     };
   }
-  if (row.sold_out) {
+  if (row.sold_out || row.stock_count === 0) {
     return { productId, reason: "sold_out", message: `${row.name} is sold out.` };
+  }
+  // The count can still drop before the customer pays. Checkout counts
+  // again, with the product locked, just before it charges the card.
+  if (isShort(row.stock_count, qty)) {
+    const available = row.stock_count!;
+    return { productId, reason: "not_enough", message: shortMessage(row.name, available), available };
   }
   if (row.price_cents == null || !Number.isInteger(row.price_cents) || row.price_cents < 0) {
     return {
@@ -508,10 +519,11 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
     return fail("store_closed", "Online ordering is closed right now. Please check back soon.");
   }
 
-  // Every line must be a product we sell online, in stock, with a price.
+  // Every line must be a product we sell online, in stock (enough jars),
+  // with a price.
   const byId = new Map(products.map((row) => [row.id, row]));
   const problems = input.items
-    .map((item) => itemProblem(item.productId, byId.get(item.productId)))
+    .map((item) => itemProblem(item.productId, item.qty, byId.get(item.productId)))
     .filter((problem): problem is ItemProblem => problem !== null);
   if (problems.length > 0) {
     return fail(

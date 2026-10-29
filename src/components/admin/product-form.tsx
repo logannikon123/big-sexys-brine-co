@@ -16,6 +16,7 @@ import { SortableFormList } from "@/components/admin/sortable-form-list";
 import { createProduct, updateProduct } from "@/app/admin/actions";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { parseCount, stockCountToSave } from "@/lib/stock";
 
 interface Category {
   id: number;
@@ -40,6 +41,8 @@ interface ProductFormProps {
     price_cents?: number | null;
     sold_online?: boolean;
     sold_out?: boolean;
+    stock_count?: number | null;
+    low_stock_at?: number | null;
   };
   categories: Category[];
   initialCategoryIds?: number[];
@@ -73,6 +76,25 @@ export function ProductForm({
   );
   const [soldOnline, setSoldOnline] = useState(product?.sold_online ?? false);
   const [soldOut, setSoldOut] = useState(product?.sold_out ?? false);
+  // Stock is typed as text so "blank" (don't track) differs from 0.
+  const [stock, setStock] = useState(product?.stock_count != null ? String(product.stock_count) : "");
+  const [lowAt, setLowAt] = useState(product?.low_stock_at != null ? String(product.low_stock_at) : "");
+  const [reopened, setReopened] = useState(false);
+  const stockValue = parseCount(stock);
+  const lowAtValue = parseCount(lowAt);
+  const stockInvalid = stockValue === undefined;
+  const lowAtInvalid = lowAtValue === undefined;
+
+  // Taking the last jar turns Sold out on. Adding jars to a count of 0
+  // turns it off again, as the database does when jars are put back.
+  const handleStockChange = (value: string) => {
+    setStock(value);
+    const count = parseCount(value);
+    if (product?.stock_count === 0 && product.sold_out && typeof count === "number" && count > 0) {
+      setSoldOut(false);
+      setReopened(true);
+    }
+  };
   const priceCents = price.trim() === "" ? null : Math.round(Number(price) * 100);
   const priceInvalid = priceCents !== null && (!Number.isFinite(priceCents) || priceCents < 0);
   const needsPrice = soldOnline && priceCents === null;
@@ -99,6 +121,10 @@ export function ProductForm({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (stockInvalid || lowAtInvalid) {
+      toast.error("Enter whole numbers of jars, or leave the stock boxes blank.");
+      return;
+    }
     setSaving(true);
 
     // Use the first selected category name as the primary category (for backward compat)
@@ -125,7 +151,7 @@ export function ProductForm({
       featured,
       price_cents: priceCents,
       sold_online: soldOnline,
-      sold_out: soldOut,
+      low_stock_at: lowAtValue ?? null,
       images: images.map((img) => ({
         url: img.url,
         alt: img.alt,
@@ -136,10 +162,17 @@ export function ProductForm({
 
     try {
       if (product) {
-        await updateProduct(product.id, data);
+        // Only what Jesse changed, so an order that took jars (or the last
+        // jar) while the form was open isn't undone.
+        const stockCount = stockCountToSave(stock, product.stock_count ?? null);
+        await updateProduct(product.id, {
+          ...data,
+          ...(soldOut !== (product.sold_out ?? false) ? { sold_out: soldOut } : {}),
+          ...(stockCount !== undefined ? { stock_count: stockCount } : {}),
+        });
         toast.success("Product updated");
       } else {
-        await createProduct(data);
+        await createProduct({ ...data, sold_out: soldOut, stock_count: stockValue ?? null });
         toast.success("Product created");
       }
       router.push("/admin/products");
@@ -234,7 +267,57 @@ export function ProductForm({
                 <p className="text-xs text-muted-foreground">
                   Turn on to pause online orders for this jar until it&apos;s back in stock.
                 </p>
+                {reopened && !soldOut && (
+                  <p className="text-xs text-brand-orange">
+                    Turned off because you added jars. Save to put it back on sale.
+                  </p>
+                )}
               </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="stock-count">Jars in stock</Label>
+              <Input
+                id="stock-count"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={stock}
+                onChange={(e) => handleStockChange(e.target.value)}
+                placeholder="Blank: don't track"
+                aria-describedby="stock-count-help"
+              />
+              <p id="stock-count-help" className="text-xs text-muted-foreground">
+                Each paid online order takes its jars off this count, and nobody can order more
+                than you have. At 0 it shows as sold out. Leave blank to not track.
+              </p>
+              {stockInvalid && (
+                <p className="text-xs text-destructive">Enter a whole number, like 12, or leave it blank.</p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="low-stock-at">Warn me at</Label>
+              <Input
+                id="low-stock-at"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={lowAt}
+                onChange={(e) => setLowAt(e.target.value)}
+                placeholder="e.g., 3"
+                aria-describedby="low-stock-at-help"
+              />
+              <p id="low-stock-at-help" className="text-xs text-muted-foreground">
+                You get a phone alert and an email when an order leaves this many jars or fewer.
+                Leave blank for no alert. You always hear when a jar sells out.
+              </p>
+              {lowAtInvalid && (
+                <p className="text-xs text-destructive">Enter a whole number, like 3, or leave it blank.</p>
+              )}
             </div>
           </div>
 
