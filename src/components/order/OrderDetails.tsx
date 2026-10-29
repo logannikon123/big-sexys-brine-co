@@ -4,6 +4,8 @@ import type { PublicOrder } from "@/lib/orders/public-order";
 import type { OrderStatus } from "@/types/orders";
 import { formatPrice } from "@/lib/utils";
 import { trackingUrl } from "@/components/admin/orders/order-flow";
+import { UPCOMING_CLASSES_ID } from "@/components/classes/UpcomingClasses";
+import { CLASS_POLICY_TEXT, classDay, classTime } from "@/lib/classes/format";
 
 /** "2026-10-27" -> "Tuesday, October 27" */
 function longDate(isoDate: string): string {
@@ -40,11 +42,28 @@ const STATUS_TEXT: Record<OrderStatus, string> = {
   cancelled: "We cancelled this order.",
 };
 
+/** The same steps for a class booking. Only some of them happen to one. */
+const CLASS_STATUS_TEXT: Record<OrderStatus, string> = {
+  pending_payment: "We're confirming your payment.",
+  payment_failed: "Your payment didn't go through.",
+  paid: "Paid. Your seats are booked.",
+  ready_for_pickup: "Paid. Your seats are booked.",
+  out_for_delivery: "Paid. Your seats are booked.",
+  shipped: "Paid. Your seats are booked.",
+  fulfilled: "Thanks for coming to class!",
+  cancelled: "We cancelled this booking.",
+};
+
+function isClass(order: PublicOrder): boolean {
+  return order.fulfillment_type === "class";
+}
+
 /** A line about money given back, under the step. */
 function refundText(order: PublicOrder): string | null {
-  if (order.refund_status === "full") return "We refunded this order in full.";
+  const noun = isClass(order) ? "booking" : "order";
+  if (order.refund_status === "full") return `We refunded this ${noun} in full.`;
   if (order.refund_status === "partial") {
-    return `We refunded ${formatPrice(order.refunded_cents)} of this order.`;
+    return `We refunded ${formatPrice(order.refunded_cents)} of this ${noun}.`;
   }
   return null;
 }
@@ -76,9 +95,16 @@ function Tracking({ order }: { order: PublicOrder }) {
 const SENT: readonly OrderStatus[] = ["shipped", "fulfilled", "cancelled"];
 
 export function OrderStatusCard({ order }: { order: PublicOrder }) {
+  const forClass = isClass(order);
   // A full refund before the jars went out reads as the order's news.
   const refundedFirst = order.refund_status === "full" && !SENT.includes(order.status);
-  const headline = refundedFirst ? "We refunded this order in full." : STATUS_TEXT[order.status];
+  // Jesse can cancel a class booking without changing the order's step.
+  const bookingCancelled = forClass && order.classBooking?.cancelled_at != null;
+  const headline = refundedFirst
+    ? refundText(order)
+    : bookingCancelled
+      ? "We cancelled this booking."
+      : (forClass ? CLASS_STATUS_TEXT : STATUS_TEXT)[order.status];
   const refund = refundedFirst ? null : refundText(order);
   const showTracking =
     order.fulfillment_type === "shipping" &&
@@ -94,9 +120,15 @@ export function OrderStatusCard({ order }: { order: PublicOrder }) {
       )}
       {order.status === "payment_failed" && (
         <p className="text-brand-cream/80">
-          <Link href="/cart" className={linkClass}>
-            Go back to your cart
-          </Link>{" "}
+          {forClass ? (
+            <Link href={`/learn-to-preserve#${UPCOMING_CLASSES_ID}`} className={linkClass}>
+              Pick a class date
+            </Link>
+          ) : (
+            <Link href="/cart" className={linkClass}>
+              Go back to your cart
+            </Link>
+          )}{" "}
           to try again.
         </p>
       )}
@@ -136,6 +168,9 @@ export function OrderFulfillmentCard({ order }: { order: PublicOrder }) {
     ) : (
       <p className="text-brand-cream/80">We&apos;ll tell you where and when to pick up.</p>
     );
+  } else if (order.fulfillment_type === "class") {
+    title = "Your class";
+    body = <ClassDetails order={order} />;
   } else if (order.fulfillment_type === "local_delivery") {
     title = "Local delivery";
     body = (
@@ -165,6 +200,36 @@ export function OrderFulfillmentCard({ order }: { order: PublicOrder }) {
   );
 }
 
+/** When and where the class is, the seats, and the class policy. */
+function ClassDetails({ order }: { order: PublicOrder }) {
+  const booking = order.classBooking;
+  const session = booking?.session;
+  return (
+    <>
+      {session ? (
+        <>
+          <p className="font-semibold text-brand-cream">
+            {classDay(session.starts_at)}, {classTime(session.starts_at)} to {classTime(session.ends_at)}
+          </p>
+          <p className="break-words text-brand-cream/80">
+            {session.location_name}
+            {session.location_address && <span className="block">{session.location_address}</span>}
+          </p>
+        </>
+      ) : (
+        <p className="text-brand-cream/80">We&apos;ll email you the class details.</p>
+      )}
+      {booking && (
+        <p className="text-brand-cream/80">
+          {booking.seats} {booking.seats === 1 ? "seat" : "seats"}
+          {booking.cancelled_at ? " (cancelled)" : ""}
+        </p>
+      )}
+      <p className="text-sm text-brand-cream/60">{CLASS_POLICY_TEXT}</p>
+    </>
+  );
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between gap-4 text-brand-cream/80">
@@ -183,7 +248,8 @@ export function OrderSummaryCard({ order }: { order: PublicOrder }) {
     { label: "Discount", cents: -order.discount_cents },
   ].filter((fee) => fee.cents !== 0);
 
-  let taxLabel = "Local sales tax";
+  const forClass = isClass(order);
+  let taxLabel = forClass ? "Sales tax (none on classes)" : "Local sales tax";
   if (order.tax_cents > 0 && order.tax_jurisdiction) taxLabel += ` (${order.tax_jurisdiction})`;
 
   // Square sends brands like "VISA" or "AMERICAN_EXPRESS".
@@ -194,7 +260,7 @@ export function OrderSummaryCard({ order }: { order: PublicOrder }) {
 
   return (
     <div className={cardClass}>
-      <h2 className={headingClass}>Your order</h2>
+      <h2 className={headingClass}>{forClass ? "Your booking" : "Your order"}</h2>
       <ul className="space-y-2 text-sm">
         {order.items.map((item) => (
           <li key={item.id} className="flex justify-between gap-4 text-brand-cream/80">

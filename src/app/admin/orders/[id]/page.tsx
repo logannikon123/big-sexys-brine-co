@@ -3,6 +3,7 @@ import { requireAuth } from "@/lib/supabase/auth-guard";
 import { OrderDetail } from "@/components/admin/orders/order-detail";
 import { DemoBanner } from "@/components/admin/orders/order-badges";
 import { isOrdersDemo, loadOrder } from "../order-data";
+import { loadClassBookingForOrder } from "@/app/admin/classes/class-data";
 
 export default async function AdminOrderPage({
   params,
@@ -14,6 +15,11 @@ export default async function AdminOrderPage({
   const found = await loadOrder(id);
   if (!found) notFound();
   const demo = isOrdersDemo();
+  // A class order shows its class date instead of pickup or delivery.
+  const classBooking =
+    found.order.fulfillment_type === "class" && !demo
+      ? await loadClassBookingForOrder(found.order.id)
+      : null;
 
   return (
     // Extra room on phones so the menu button doesn't cover the back link.
@@ -26,6 +32,7 @@ export default async function AdminOrderPage({
         emails={found.emails}
         taxParts={found.taxParts}
         demo={demo}
+        classBooking={classBooking}
       />
     </div>
   );

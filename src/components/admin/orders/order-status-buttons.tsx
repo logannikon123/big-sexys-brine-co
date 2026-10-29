@@ -86,7 +86,12 @@ export function OrderStatusButtons({
   const moves = allowedMoves(fulfillmentType, status);
   const forward = moves.filter((m) => m !== "cancelled");
   const canCancel = moves.includes("cancelled");
-  const doneWords = fulfillmentType === "pickup" ? "picked up" : "delivered";
+  const doneWords =
+    fulfillmentType === "class"
+      ? "attended"
+      : fulfillmentType === "pickup"
+        ? "picked up"
+        : "delivered";
   const note = emailNote(moves, fulfillmentType);
 
   function closeDialogs() {

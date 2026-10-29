@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ExternalLink, Mail, MapPin, Phone } from "lucide-react";
+import { ChevronLeft, ExternalLink, GraduationCap, Mail, MapPin, Phone } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import {
   Card,
@@ -16,6 +16,9 @@ import type {
   OrderTaxPart,
 } from "@/types/orders";
 import { splitTaxCents, type RefundFor } from "@/lib/tax-split";
+import { classWhen } from "@/lib/classes/format";
+import { FULL_REFUND_DAYS } from "@/types/classes";
+import type { OrderClassBooking } from "@/app/admin/classes/class-data";
 import {
   OPEN_STATUSES,
   formatDeliveryDate,
@@ -41,6 +44,8 @@ interface OrderDetailProps {
   emails: OrderEmail[];
   taxParts: OrderTaxPart[];
   demo: boolean;
+  /** The booking behind a class order. Null for jar orders, or if it didn't load. */
+  classBooking?: OrderClassBooking | null;
 }
 
 function Section({
@@ -100,6 +105,10 @@ function formatCardBrand(brand: string): string {
 
 function jars(count: number): string {
   return count === 1 ? "1 jar" : `${count} jars`;
+}
+
+function seats(count: number): string {
+  return count === 1 ? "1 seat" : `${count} seats`;
 }
 
 function addressLines(order: Order): string[] {
@@ -181,10 +190,55 @@ function HowTheyGetIt({ order }: { order: Order }) {
   );
 }
 
-function Items({ items }: { items: OrderItem[] }) {
+/** For a class order: which class, where, and how many seats. */
+function ClassBookingSection({
+  booking,
+}: {
+  booking: OrderClassBooking | null | undefined;
+}) {
+  const session = booking?.session;
+  return (
+    <Section title="Class booking">
+      {!booking || !session ? (
+        <p className="text-sm text-muted-foreground">
+          The class date for this order didn&apos;t load. See it on Class sessions.
+        </p>
+      ) : (
+        <dl className="space-y-2 text-sm">
+          <Row label="When">{classWhen(session.starts_at, session.ends_at)}</Row>
+          <Row label="Where">
+            {session.location_name}
+            {session.location_address && (
+              <span className="block text-muted-foreground">{session.location_address}</span>
+            )}
+          </Row>
+          <Row label="Seats">{seats(booking.seats)}</Row>
+          {booking.cancelled_at && (
+            <Row label="Booking">Cancelled {formatOrderTime(booking.cancelled_at)}</Row>
+          )}
+        </dl>
+      )}
+      {booking?.cancel_note && (
+        <div className="mt-4 rounded-md bg-muted/50 p-3 text-sm">
+          <p className="mb-1 font-medium">Why it was cancelled</p>
+          <p className="whitespace-pre-line text-muted-foreground">{booking.cancel_note}</p>
+        </div>
+      )}
+      <Link
+        href="/admin/classes"
+        className="mt-3 inline-flex h-11 items-center gap-2 text-sm text-brand-orange underline underline-offset-4"
+      >
+        <GraduationCap className="h-4 w-4" />
+        See this class on Class sessions
+      </Link>
+    </Section>
+  );
+}
+
+function Items({ items, isClass }: { items: OrderItem[]; isClass: boolean }) {
   const count = items.reduce((sum, i) => sum + i.quantity, 0);
   return (
-    <Section title={`What to pack (${jars(count)})`}>
+    <Section title={isClass ? `What they booked (${seats(count)})` : `What to pack (${jars(count)})`}>
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">No items on this order.</p>
       ) : (
@@ -389,7 +443,9 @@ function Money({
   return (
     <Section title="Money">
       <dl className="space-y-2 text-sm">
-        <Row label="Jars">{formatPrice(order.subtotal_cents)}</Row>
+        <Row label={order.fulfillment_type === "class" ? "Class" : "Jars"}>
+          {formatPrice(order.subtotal_cents)}
+        </Row>
         {order.delivery_fee_cents > 0 && (
           <Row label="Delivery fee">{formatPrice(order.delivery_fee_cents)}</Row>
         )}
@@ -573,7 +629,9 @@ function MoneyWarning({ order }: { order: Order }) {
     text = "The bank sided with you on the card dispute. You keep the payment.";
   } else if (order.refund_status === "full" && open) {
     text =
-      "This order was refunded in full in Square. If you aren't sending the jars, cancel it.";
+      order.fulfillment_type === "class"
+        ? "This booking was refunded in full in Square, so its seats are free again. To mark it cancelled, use Class sessions."
+        : "This order was refunded in full in Square. If you aren't sending the jars, cancel it.";
   }
 
   if (!text) return null;
@@ -624,7 +682,11 @@ function History({ order }: { order: Order }) {
     ["Out for delivery", order.out_for_delivery_at],
     ["Shipped", order.shipped_at],
     [
-      order.fulfillment_type === "pickup" ? "Picked up" : "Delivered",
+      order.fulfillment_type === "class"
+        ? "Attended"
+        : order.fulfillment_type === "pickup"
+          ? "Picked up"
+          : "Delivered",
       order.fulfilled_at,
     ],
     ["Cancelled", order.cancelled_at],
@@ -653,8 +715,10 @@ export function OrderDetail({
   emails,
   taxParts,
   demo,
+  classBooking,
 }: OrderDetailProps) {
   const isShipping = order.fulfillment_type === "shipping";
+  const isClass = order.fulfillment_type === "class";
 
   return (
     <div className="space-y-6">
@@ -670,7 +734,7 @@ export function OrderDetail({
           <h1 className="font-display text-2xl font-bold">
             Order #{order.order_number}
           </h1>
-          <OrderStatusBadge status={order.status} className="text-sm" />
+          <OrderStatusBadge status={order.status} type={order.fulfillment_type} className="text-sm" />
           <OrderMoneyBadges
             refundStatus={order.refund_status}
             disputeStatus={order.dispute_status}
@@ -701,6 +765,21 @@ export function OrderDetail({
                 hasTracking={Boolean(order.tracking_number?.trim())}
                 demo={demo}
               />
+              {isClass && (
+                <div className="space-y-1 text-sm">
+                  <Link
+                    href="/admin/classes"
+                    className="inline-flex h-11 items-center gap-2 text-brand-orange underline underline-offset-4"
+                  >
+                    <GraduationCap className="h-4 w-4" />
+                    Cancel or refund from Class sessions
+                  </Link>
+                  <p className="text-xs text-muted-foreground">
+                    Class bookings are cancelled there, so the {FULL_REFUND_DAYS}-day
+                    refund rule is applied and the seats are freed.
+                  </p>
+                </div>
+              )}
               <History order={order} />
               <Emails emails={emails} />
             </div>
@@ -719,8 +798,12 @@ export function OrderDetail({
         </div>
 
         <div className="space-y-6 lg:col-span-2 lg:col-start-1 lg:row-span-2 lg:row-start-1">
-          <HowTheyGetIt order={order} />
-          <Items items={items} />
+          {isClass ? (
+            <ClassBookingSection booking={classBooking} />
+          ) : (
+            <HowTheyGetIt order={order} />
+          )}
+          <Items items={items} isClass={isClass} />
           <Customer order={order} />
           <Money order={order} refunds={refunds} taxParts={taxParts} demo={demo} />
           <Payment order={order} />
@@ -734,14 +817,16 @@ export function OrderDetail({
               demo={demo}
             />
           </Section>
-          <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 p-4 text-sm">
-            <p className="font-medium">Waiving a fee or giving a discount</p>
-            <p className="mt-1 text-muted-foreground">
-              To waive a fee or give a discount, refund that amount in your
-              Square Dashboard. The order updates here automatically, keeps
-              its next step, and the customer gets a refund email.
-            </p>
-          </div>
+          {!isClass && (
+            <div className="rounded-xl border border-sky-500/40 bg-sky-500/10 p-4 text-sm">
+              <p className="font-medium">Waiving a fee or giving a discount</p>
+              <p className="mt-1 text-muted-foreground">
+                To waive a fee or give a discount, refund that amount in your
+                Square Dashboard. The order updates here automatically, keeps
+                its next step, and the customer gets a refund email.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

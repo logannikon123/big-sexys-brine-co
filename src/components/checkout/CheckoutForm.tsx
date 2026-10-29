@@ -96,6 +96,7 @@ export function CheckoutForm({
     postalCode: "",
   });
   const [deliveryDate, setDeliveryDate] = useState("");
+  const [discountCode, setDiscountCode] = useState("");
   const [status, setStatus] = useState<"idle" | "loading">("idle");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [problem, setProblem] = useState<QuoteProblem | null>(null);
@@ -236,6 +237,7 @@ export function CheckoutForm({
           : method === "local_delivery"
             ? { type: "local_delivery", address: cleanAddress, deliveryDate }
             : { type: "shipping", address: cleanAddress },
+      ...(discountCode.trim() ? { discountCode: discountCode.trim() } : {}),
     };
   }
 
@@ -478,6 +480,30 @@ export function CheckoutForm({
             more jars, or choose another way to get them.
           </p>
         )}
+
+        <fieldset disabled={checkoutOpen} className="space-y-2 disabled:opacity-60">
+          <legend className="mb-3 font-display text-xl font-semibold text-brand-cream">
+            Discount code <span className="text-base font-normal text-brand-cream/40">(optional)</span>
+          </legend>
+          <Input
+            id="discountCode"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            maxLength={32}
+            value={discountCode}
+            onChange={(e) => {
+              setDiscountCode(e.target.value.toUpperCase());
+              forgetQuote();
+            }}
+            className={cn(inputClass, "max-w-xs uppercase")}
+            aria-label="Discount code"
+            aria-describedby="discountCodeHelp"
+          />
+          <p id="discountCodeHelp" className="text-sm text-brand-cream/60">
+            Took our class? Enter the code we emailed you. It comes off the jars when you get your price.
+          </p>
+        </fieldset>
 
         <fieldset className="space-y-4">
           <legend className="mb-3 font-display text-xl font-semibold text-brand-cream">

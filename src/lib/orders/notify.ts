@@ -2,6 +2,7 @@ import "server-only";
 import { alertOwnerLater } from "@/lib/alerts";
 import { createServiceClient } from "@/lib/supabase/server";
 import { formatPrice } from "@/lib/utils";
+import { classWhen, CLASS_POLICY_TEXT } from "@/lib/classes/format";
 import {
   buildRefundEmail,
   buildStepEmail,
@@ -29,6 +30,10 @@ import type { OrderEmailKind, OrderStatus } from "@/types/orders";
  * problem alert (src/lib/alerts.ts), never thrown, because the customer has
  * already paid and their order must not fail over an email.
  *
+ * A class booking (fulfillment_type "class") gets the same alerts and a
+ * booking confirmation in place of the jar receipt: the class date, time,
+ * place, seats and the refund policy.
+ *
  * Later emails to the customer (ready, out for delivery, shipped, delivered,
  * cancelled, refunded) are at the end of this file.
  */
@@ -40,6 +45,7 @@ const HOW_THEY_GET_IT: Record<string, string> = {
   pickup: "Pickup",
   local_delivery: "Local delivery",
   shipping: "Shipping",
+  class: "Class",
 };
 
 interface PaidOrder {
@@ -69,6 +75,33 @@ interface PaidOrder {
   total_cents: number;
   square_environment: string | null;
   order_items: { product_name: string; product_size: string | null; quantity: number; line_total_cents: number }[];
+  /** Set for a class order only. */
+  class_bookings: ClassBookingFields | null;
+}
+
+interface ClassBookingFields {
+  seats: number;
+  class_sessions: {
+    starts_at: string;
+    ends_at: string;
+    location_name: string;
+    location_address: string | null;
+  } | null;
+}
+
+/** The class session of a class order, or null for a jar order. */
+function classSession(order: PaidOrder) {
+  return order.fulfillment_type === "class" ? (order.class_bookings?.class_sessions ?? null) : null;
+}
+
+/** When and where the class is, for a class order. */
+function classLines(order: PaidOrder): string[] {
+  const session = classSession(order);
+  if (!session) return [];
+  return [
+    `When: ${classWhen(session.starts_at, session.ends_at)}`,
+    `Where: ${[session.location_name, session.location_address].filter(Boolean).join(", ")}`,
+  ];
 }
 
 /** "2026-10-27" as "Tuesday, October 27". */
@@ -98,6 +131,7 @@ function itemLines(order: PaidOrder): string[] {
 }
 
 function moneyLines(order: PaidOrder): string[] {
+  if (order.fulfillment_type === "class") return [`Total: ${formatPrice(order.total_cents)} (no sales tax on classes)`];
   const lines = [`Subtotal: ${formatPrice(order.subtotal_cents)}`];
   if (order.delivery_fee_cents > 0) lines.push(`Delivery: ${formatPrice(order.delivery_fee_cents)}`);
   if (order.rush_fee_cents > 0) lines.push(`Rush fee: ${formatPrice(order.rush_fee_cents)}`);
@@ -111,6 +145,8 @@ function moneyLines(order: PaidOrder): string[] {
 
 function howLine(order: PaidOrder): string {
   const how = HOW_THEY_GET_IT[order.fulfillment_type] ?? order.fulfillment_type;
+  const session = classSession(order);
+  if (session) return `Class on ${classWhen(session.starts_at, session.ends_at)}`;
   if (order.fulfillment_type === "local_delivery" && order.delivery_date) {
     return `${how} on ${longDate(order.delivery_date)}${order.is_rush ? " (rush)" : ""}`;
   }
@@ -126,7 +162,7 @@ async function claimOrder(orderId: string): Promise<PaidOrder | null> {
     .eq("id", orderId)
     .is("alerted_at", null)
     .select(
-      "id, order_number, public_token, fulfillment_type, delivery_date, is_rush, pickup_instructions, customer_name, customer_email, customer_phone, customer_notes, address_line1, address_line2, city, state, postal_code, subtotal_cents, delivery_fee_cents, rush_fee_cents, packing_fee_cents, shipping_postage_cents, discount_cents, tax_cents, total_cents, square_environment, order_items(product_name, product_size, quantity, line_total_cents)"
+      "id, order_number, public_token, fulfillment_type, delivery_date, is_rush, pickup_instructions, customer_name, customer_email, customer_phone, customer_notes, address_line1, address_line2, city, state, postal_code, subtotal_cents, delivery_fee_cents, rush_fee_cents, packing_fee_cents, shipping_postage_cents, discount_cents, tax_cents, total_cents, square_environment, order_items(product_name, product_size, quantity, line_total_cents), class_bookings(seats, class_sessions(starts_at, ends_at, location_name, location_address))"
     )
     .maybeSingle();
   if (error) {
@@ -164,14 +200,19 @@ async function sendPushover(order: PaidOrder, test: boolean): Promise<SendResult
     return "PUSHOVER_TOKEN or PUSHOVER_USER is not set";
   }
   const jars = order.order_items.reduce((sum, item) => sum + item.quantity, 0);
+  const isClass = order.fulfillment_type === "class";
+  const seats = order.class_bookings?.seats ?? jars;
+  const what = isClass
+    ? `${seats} ${seats === 1 ? "seat" : "seats"} for ${order.customer_name}`
+    : `${jars} ${jars === 1 ? "jar" : "jars"} for ${order.customer_name}`;
   const res = await fetch("https://api.pushover.net/1/messages.json", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       token,
       user,
-      title: `${test ? "TEST " : ""}New order #${order.order_number}: ${formatPrice(order.total_cents)}`,
-      message: `${howLine(order)}. ${jars} ${jars === 1 ? "jar" : "jars"} for ${order.customer_name}.`,
+      title: `${test ? "TEST " : ""}${isClass ? "New class booking" : "New order"} #${order.order_number}: ${formatPrice(order.total_cents)}`,
+      message: `${howLine(order)}. ${what}.`,
       url: `${SITE_URL}/admin/orders/${order.id}`,
       url_title: "Open in Admin",
     }),
@@ -200,12 +241,13 @@ async function sendEmails(order: PaidOrder, test: boolean): Promise<{ alert: Sen
       from: FROM,
       to: alertTo,
       replyTo: order.customer_email,
-      subject: `${tag}New order #${order.order_number}: ${formatPrice(order.total_cents)} (${HOW_THEY_GET_IT[order.fulfillment_type] ?? order.fulfillment_type})`,
+      subject: `${tag}New ${order.fulfillment_type === "class" ? "class booking" : "order"} #${order.order_number}: ${formatPrice(order.total_cents)} (${HOW_THEY_GET_IT[order.fulfillment_type] ?? order.fulfillment_type})`,
       text: [
         `Order #${order.order_number} is paid.`,
         "",
         howLine(order),
         ...addressLines(order),
+        ...classLines(order).slice(1),
         "",
         `Customer: ${order.customer_name}`,
         `Email: ${order.customer_email}`,
@@ -237,30 +279,62 @@ async function sendEmails(order: PaidOrder, test: boolean): Promise<{ alert: Sen
     from: FROM,
     to: order.customer_email,
     ...(alertTo ? { replyTo: alertTo } : {}),
-    subject: `${tag}Your Big Sexy's Brine Co. order #${order.order_number}`,
-    text: [
-      `Hi ${order.customer_name},`,
-      "",
-      `Thanks for your order! We got your payment of ${formatPrice(order.total_cents)}.`,
-      "",
-      ...how,
-      "",
-      ...itemLines(order),
-      "",
-      ...moneyLines(order),
-      "",
-      `See your order any time: ${orderPage}`,
-      "",
-      "Questions? Reply to this email.",
-      "",
-      "Big Sexy's Brine Co.",
-    ].join("\n"),
+    ...(order.fulfillment_type === "class"
+      ? classConfirmation(order, tag, orderPage)
+      : {
+          subject: `${tag}Your Big Sexy's Brine Co. order #${order.order_number}`,
+          text: [
+            `Hi ${order.customer_name},`,
+            "",
+            `Thanks for your order! We got your payment of ${formatPrice(order.total_cents)}.`,
+            "",
+            ...how,
+            "",
+            ...itemLines(order),
+            "",
+            ...moneyLines(order),
+            "",
+            `See your order any time: ${orderPage}`,
+            "",
+            "Questions? Reply to this email.",
+            "",
+            "Big Sexy's Brine Co.",
+          ].join("\n"),
+        }),
   });
   if (receipt.error) {
     console.error("Order alert: Resend refused the receipt email:", receipt.error.message);
     return { alert, receipt: `Resend refused it: ${receipt.error.message}` };
   }
   return { alert, receipt: null };
+}
+
+/** The customer's email for a paid class booking, in place of the jar receipt. */
+function classConfirmation(order: PaidOrder, tag: string, orderPage: string): { subject: string; text: string } {
+  const seats = order.class_bookings?.seats ?? 1;
+  return {
+    subject: `${tag}You're booked: Learn to Preserve (booking #${order.order_number})`,
+    text: [
+      `Hi ${order.customer_name},`,
+      "",
+      `You're booked for the Learn to Preserve class, ${seats} ${seats === 1 ? "seat" : "seats"}. We got your payment of ${formatPrice(order.total_cents)}.`,
+      "",
+      ...classLines(order),
+      "",
+      "We provide all the materials, so just bring yourself. You'll take home 3 jars of your own.",
+      "The day after class we'll email you a code for 10% off an online jar order.",
+      "",
+      ...moneyLines(order),
+      "",
+      CLASS_POLICY_TEXT,
+      "",
+      `See your booking any time: ${orderPage}`,
+      "",
+      "Questions? Reply to this email.",
+      "",
+      "Big Sexy's Brine Co.",
+    ].join("\n"),
+  };
 }
 
 /** A send that threw, logged, as words for an alert. */

@@ -53,7 +53,7 @@ const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || "https://bigsexysbrine.co"
 const ONCE_PER_ORDER_HOURS = 7 * 24;
 
 /** The version of the store terms the customer agrees to. Change it when /terms changes. */
-export const TERMS_VERSION = "2026-10-21 (terms, refunds, privacy)";
+export const TERMS_VERSION = "2026-10-28 (terms, refunds with classes, privacy)";
 
 /** Statuses that mean the money was taken. */
 const PAID_STATUSES = new Set([
@@ -114,7 +114,7 @@ const ORDER_COLUMNS =
   "id, order_number, public_token, status, total_cents, customer_email, created_at, square_payment_id";
 
 /** Square's decline codes, in words a customer can act on. */
-const DECLINE_MESSAGES: Record<string, string> = {
+export const DECLINE_MESSAGES: Record<string, string> = {
   CARD_DECLINED: "Your card was declined. Try another card, or call your bank.",
   GENERIC_DECLINE: "Your card was declined. Try another card, or call your bank.",
   INSUFFICIENT_FUNDS: "Your card was declined for low funds. Try another card.",
@@ -320,6 +320,26 @@ async function holdStock(order: ExistingOrder): Promise<PayError | null> {
 }
 
 /**
+ * Mark the discount code used by this order. Returns true, or the answer
+ * for the customer when it can't. Then the unpaid order is taken back out,
+ * since nothing was charged.
+ */
+async function claimDiscountCode(code: string, order: ExistingOrder): Promise<true | PayError> {
+  const supabase = await createServiceClient();
+  const { data, error } = await supabase.rpc("claim_discount_code", { p_code: code, p_order_id: order.id });
+  if (!error && data === true) return true;
+  if (error) {
+    console.error("Pay: couldn't mark the discount code used:", error.message);
+    alertSaveFailed(`the discount code for order #${order.order_number}`, error.message);
+  }
+  await supabase.from("orders").delete().eq("id", order.id).eq("status", "pending_payment");
+  if (error) return SAVE_FAILED;
+  return fail("bad_discount_code", "That discount code was just used on another order. Nothing was charged. Remove the code and get your price again.", {
+    retrySameCheckout: false,
+  });
+}
+
+/**
  * Update a pending order. Returns true if it changed. An order the webhook
  * has already marked is left alone, so it isn't marked (or emailed about)
  * twice.
@@ -379,7 +399,7 @@ function keepOptIn(input: PayInput, orderId: string, context: PayContext) {
 }
 
 /** A declined card, as opposed to a request Square refused for another reason. */
-function isDecline(failure: { code: string; category: string }): boolean {
+export function isDecline(failure: { code: string; category: string }): boolean {
   return failure.code in DECLINE_MESSAGES || failure.category === "PAYMENT_METHOD_ERROR";
 }
 
@@ -536,6 +556,18 @@ export async function placeOrder(
     // 2. Save the order, and hold its jars.
     saved = await saveOrder(input, quote);
     if (!saved) return SAVE_FAILED;
+
+    // A discount code is used once. Mark it used by this order before the
+    // card is charged; if another order got it first, charge nothing. A
+    // failed payment frees the code again (a database trigger does that),
+    // and so does taking the order back out. The code comes before the
+    // jars, because a refused code deletes the order without putting jars
+    // back.
+    if (input.discountCode && quote.discountCents > 0) {
+      const claimed = await claimDiscountCode(input.discountCode, saved);
+      if (claimed !== true) return claimed;
+    }
+
     const notHeld = await holdStock(saved);
     if (notHeld) return notHeld;
   }

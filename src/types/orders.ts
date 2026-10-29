@@ -34,7 +34,8 @@ export type RefundStatus = "none" | "partial" | "full";
 /** Where a card dispute stands. Null on the order means no dispute. */
 export type DisputeStatus = "open" | "won" | "lost";
 
-export const FULFILLMENT_TYPES = ["pickup", "local_delivery", "shipping"] as const;
+/** "class" is a seat at the Learn to Preserve class (see src/types/classes.ts). */
+export const FULFILLMENT_TYPES = ["pickup", "local_delivery", "shipping", "class"] as const;
 
 export type FulfillmentType = (typeof FULFILLMENT_TYPES)[number];
 

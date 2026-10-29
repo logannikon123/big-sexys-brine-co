@@ -29,8 +29,11 @@ export type AdminMoveStatus =
  * - pickup:         paid -> ready_for_pickup -> fulfilled ("Picked up")
  * - local_delivery: paid -> out_for_delivery -> fulfilled ("Delivered")
  * - shipping:       paid -> shipped -> fulfilled ("Delivered")
+ * - class:          paid -> fulfilled ("Attended")
  * - paid, ready_for_pickup and out_for_delivery orders can be cancelled.
  *   A shipped order can't: the jars are already with the carrier.
+ * - A class booking is cancelled on the Class sessions page
+ *   (/admin/classes), never here, so the refund rule for classes applies.
  *
  * Square, through the webhook, sets pending_payment, payment_failed and
  * paid. Admins never set those by hand, so paid appears here only as a
@@ -53,6 +56,9 @@ export const ALLOWED_MOVES: Record<
   shipping: {
     paid: ["shipped", "cancelled"],
     shipped: ["fulfilled"],
+  },
+  class: {
+    paid: ["fulfilled"],
   },
 };
 
@@ -99,6 +105,7 @@ export function moveButtonLabel(
     case "shipped":
       return "Mark shipped";
     case "fulfilled":
+      if (type === "class") return "Mark attended";
       return type === "pickup" ? "Mark picked up" : "Mark delivered";
     case "cancelled":
       return "Cancel order";
@@ -109,7 +116,9 @@ export function moveButtonLabel(
  * The status in plain words. A fulfilled order reads "Completed". The order
  * page's history still says whether it was picked up or delivered.
  */
-export function statusLabel(status: OrderStatus): string {
+export function statusLabel(status: OrderStatus, type?: FulfillmentType): string {
+  if (type === "class" && status === "paid") return "Booked";
+  if (type === "class" && status === "fulfilled") return "Attended";
   switch (status) {
     case "pending_payment":
       return "Waiting for payment";
@@ -187,6 +196,8 @@ export function fulfillmentLabel(type: FulfillmentType): string {
       return "Delivery";
     case "shipping":
       return "Shipping";
+    case "class":
+      return "Class";
   }
 }
 

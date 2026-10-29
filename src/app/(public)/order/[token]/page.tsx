@@ -32,7 +32,9 @@ export default async function OrderPage({ params }: { params: Promise<{ token: s
     <section className="pt-28 pb-24">
       <Container className="max-w-3xl">
         <h1 className="mb-8 font-display text-4xl font-bold text-brand-cream sm:text-5xl">
-          {`Order #${order.order_number}`}
+          {order.fulfillment_type === "class"
+            ? `Class booking #${order.order_number}`
+            : `Order #${order.order_number}`}
         </h1>
         <div className="space-y-6">
           <OrderStatusCard order={order} />

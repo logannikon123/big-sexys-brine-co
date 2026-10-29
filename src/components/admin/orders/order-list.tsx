@@ -34,8 +34,10 @@ interface OrderListProps {
   error: string | null;
 }
 
-function jars(count: number): string {
-  return count === 1 ? "1 jar" : `${count} jars`;
+/** "3 jars", or "2 seats" for a class booking. */
+function jars(count: number, type: OrderListRow["fulfillment_type"]): string {
+  const [one, many] = type === "class" ? ["seat", "seats"] : ["jar", "jars"];
+  return count === 1 ? `1 ${one}` : `${count} ${many}`;
 }
 
 /** "Delivery, Tue, Oct 21" or just "Shipping". */
@@ -125,7 +127,7 @@ export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
                       <p className="truncate font-medium">{order.customer_name}</p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1">
-                      <OrderStatusBadge status={order.status} />
+                      <OrderStatusBadge status={order.status} type={order.fulfillment_type} />
                       <OrderMoneyBadges
                         refundStatus={order.refund_status}
                         disputeStatus={order.dispute_status}
@@ -137,7 +139,7 @@ export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
                       <HowTheyGetIt order={order} />
                     </p>
                     <p>
-                      {jars(order.item_count)}, {formatPrice(order.total_cents)}
+                      {jars(order.item_count, order.fulfillment_type)}, {formatPrice(order.total_cents)}
                     </p>
                     <p>Placed {formatOrderTime(order.created_at)}</p>
                   </div>
@@ -207,7 +209,7 @@ export function OrderList({ orders, view, anyOrders, error }: OrderListProps) {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        <OrderStatusBadge status={order.status} />
+                        <OrderStatusBadge status={order.status} type={order.fulfillment_type} />
                         <OrderMoneyBadges
                           refundStatus={order.refund_status}
                           disputeStatus={order.dispute_status}

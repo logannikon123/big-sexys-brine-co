@@ -8,13 +8,16 @@ import {
   refundLabel,
   statusLabel,
 } from "./order-flow";
-import type { DisputeStatus, OrderStatus, RefundStatus } from "@/types/orders";
+import type { DisputeStatus, FulfillmentType, OrderStatus, RefundStatus } from "@/types/orders";
 
 export function OrderStatusBadge({
   status,
+  type,
   className,
 }: {
   status: OrderStatus;
+  /** Class orders read "Booked" and "Attended" instead of the jar words. */
+  type?: FulfillmentType;
   className?: string;
 }) {
   return (
@@ -22,7 +25,7 @@ export function OrderStatusBadge({
       variant="outline"
       className={cn("text-xs", STATUS_BADGE_CLASS[status], className)}
     >
-      {statusLabel(status)}
+      {statusLabel(status, type)}
     </Badge>
   );
 }
