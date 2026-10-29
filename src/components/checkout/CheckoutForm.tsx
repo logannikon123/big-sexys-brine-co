@@ -48,7 +48,8 @@ interface AddressFields {
 /** A quote error from the route, plus the extra fields it can carry. */
 interface QuoteProblem {
   message: string;
-  itemProblems?: { productId: number; message: string }[];
+  /** available is set when the store has fewer jars than the cart wants. */
+  itemProblems?: { productId: number; message: string; available?: number }[];
 }
 
 const METHOD_LABELS: Record<Method, { title: string; detail: string }> = {
@@ -78,7 +79,7 @@ export function CheckoutForm({
   rushFeeCents,
   shippingStates,
 }: CheckoutFormProps) {
-  const { items, ready, clear } = useCart();
+  const { items, ready, clear, setQty } = useCart();
 
   const methods: Method[] = [
     ...(options.pickup ? (["pickup"] as const) : []),
@@ -612,7 +613,22 @@ export function CheckoutForm({
             {problem.itemProblems && problem.itemProblems.length > 0 && (
               <ul className="list-disc pl-8">
                 {problem.itemProblems.map((item) => (
-                  <li key={item.productId}>{item.message}</li>
+                  <li key={item.productId}>
+                    {item.message}
+                    {item.available !== undefined && item.available > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setQty(item.productId, item.available!);
+                          forgetQuote();
+                          endCheckout();
+                        }}
+                        className="ml-2 min-h-11 underline hover:text-brand-orange"
+                      >
+                        Change to {item.available}
+                      </button>
+                    )}
+                  </li>
                 ))}
               </ul>
             )}

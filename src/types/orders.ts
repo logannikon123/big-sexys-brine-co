@@ -115,6 +115,10 @@ export interface Order {
   terms_accepted_at: string | null;
   terms_version: string | null;
   alerted_at: string | null;
+  /** When checkout took the jars off the stock counts. Null if it never did. */
+  stock_taken_at: string | null;
+  /** When the jars went back (a failed card, or "Put jars back"). */
+  stock_returned_at: string | null;
 
   created_at: string;
   updated_at: string;
@@ -153,6 +157,8 @@ export interface OrderItem {
   quantity: number;
   /** unit_price_cents * quantity */
   line_total_cents: number;
+  /** Jars this line took off the stock count. Null when the product wasn't tracked. */
+  stock_taken: number | null;
 }
 
 /** One refund, from Square's refund messages (or copied in from before). */

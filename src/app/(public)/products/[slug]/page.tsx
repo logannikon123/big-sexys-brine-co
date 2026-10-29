@@ -15,6 +15,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { toPlainText } from "@/lib/plain-text";
 import { CottageFoodNotice } from "@/components/legal/CottageFoodNotice";
+import { fewLeft } from "@/lib/stock";
 
 // Revalidate every 60 seconds — ensures revalidatePath() from admin
 // actions actually busts the edge cache for these pages.
@@ -63,6 +64,7 @@ export default async function ProductDetailPage({
     getOrderingAvailable(),
   ]);
   const orderable = orderingAvailable && canOrderOnline(product);
+  const jarsLeft = fewLeft(product.stockCount ?? null);
   const currentIndex = allProducts.findIndex((p) => p.slug === slug);
   const prevProduct = currentIndex > 0 ? allProducts[currentIndex - 1] : null;
   const nextProduct =
@@ -165,6 +167,11 @@ export default async function ProductDetailPage({
               </div>
               {orderable ? (
                 <>
+                  {jarsLeft !== null && (
+                    <p className="text-sm font-semibold text-brand-orange">
+                      Only {jarsLeft} left
+                    </p>
+                  )}
                   <AddToCart productId={product.id} productName={product.name} />
                   <p className="text-xs text-brand-cream/60">
                     Pick up in Lakewood, local delivery, or shipping (Colorado only).

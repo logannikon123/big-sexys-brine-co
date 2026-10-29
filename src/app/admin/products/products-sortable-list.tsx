@@ -24,9 +24,25 @@ interface Product {
   price_cents: number | null;
   sold_online: boolean;
   sold_out: boolean;
+  stock_count: number | null;
+  low_stock_at: number | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
+}
+
+/** "12 jars", amber at or below the warning level, red at 0. Blank when not tracked. */
+function StockCount({ count, lowAt }: { count: number | null; lowAt: number | null }) {
+  if (count === null) {
+    return <span className="text-sm w-20 text-right text-muted-foreground">Not tracked</span>;
+  }
+  const tone =
+    count === 0 ? "text-destructive" : lowAt !== null && count <= lowAt ? "text-amber-500" : "";
+  return (
+    <span className={`text-sm w-20 text-right tabular-nums ${tone}`}>
+      {count === 1 ? "1 jar" : `${count} jars`}
+    </span>
+  );
 }
 
 export function ProductsSortableList({ products }: { products: Product[] }) {
@@ -46,7 +62,8 @@ export function ProductsSortableList({ products }: { products: Product[] }) {
           <span className="text-sm w-16 text-right tabular-nums">
             {product.price_cents != null ? formatPrice(product.price_cents) : "No price"}
           </span>
-          {product.sold_out ? (
+          <StockCount count={product.stock_count ?? null} lowAt={product.low_stock_at ?? null} />
+          {product.sold_out || product.stock_count === 0 ? (
             <Badge variant="destructive">Sold out</Badge>
           ) : product.sold_online ? (
             <Badge variant="outline">Online</Badge>

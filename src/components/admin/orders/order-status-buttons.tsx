@@ -177,7 +177,8 @@ export function OrderStatusButtons({
             so. It does not give the customer their money back. To do that,
             open the payment in your Square Dashboard and refund it there.
             The refund then shows up on this order, and the customer gets
-            a refund email.
+            a refund email. The jars stay off your stock counts until you
+            put them back from the Stock box on this page.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

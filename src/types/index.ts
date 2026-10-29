@@ -23,7 +23,10 @@ export interface Product {
   /** Price in cents. Null when the product has no online price. */
   priceCents?: number | null;
   soldOnline?: boolean;
+  /** True when switched off, or when a tracked count reaches 0. */
   soldOut?: boolean;
+  /** Jars on hand. Null when Jesse doesn't track this product. */
+  stockCount?: number | null;
 }
 
 export interface Event {

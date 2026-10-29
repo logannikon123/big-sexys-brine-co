@@ -159,6 +159,9 @@ export async function createProduct(data: {
   price_cents: number | null;
   sold_online: boolean;
   sold_out: boolean;
+  /** Jars on hand, or null for "don't track". */
+  stock_count: number | null;
+  low_stock_at: number | null;
   images?: { url: string; alt: string | null; sort_order: number; is_primary: boolean }[];
 }) {
   await requireAuthAction();
@@ -201,7 +204,14 @@ export async function updateProduct(
     featured: boolean;
     price_cents: number | null;
     sold_online: boolean;
-    sold_out: boolean;
+    /**
+     * Sent only when the admin changed it, so a save can't undo what an
+     * order did while the form was open (taking the last jar turns sold_out
+     * on). Left out, the database keeps what it has.
+     */
+    sold_out?: boolean;
+    stock_count?: number | null;
+    low_stock_at: number | null;
     images?: { url: string; alt: string | null; sort_order: number; is_primary: boolean }[];
   }
 ) {
