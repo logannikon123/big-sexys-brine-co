@@ -32,6 +32,7 @@ import { OrderStatusButtons } from "./order-status-buttons";
 import { OrderTrackingForm } from "./order-tracking-form";
 import { OrderNoteForm } from "./order-note-form";
 import { RefundForBox } from "./refund-for-form";
+import { PutJarsBack } from "./put-jars-back";
 
 interface OrderDetailProps {
   order: Order;
@@ -583,6 +584,37 @@ function MoneyWarning({ order }: { order: Order }) {
   );
 }
 
+/**
+ * The jars this order took off the stock counts, and the button that puts
+ * them back. Nothing shows for an order that took none (no tracked jars, or
+ * placed before stock counts).
+ */
+function Stock({ order, items, demo }: { order: Order; items: OrderItem[]; demo: boolean }) {
+  const taken = items.reduce((sum, i) => sum + (i.stock_taken ?? 0), 0);
+  if (!order.stock_taken_at || taken === 0) return null;
+
+  if (order.stock_returned_at) {
+    return (
+      <Section title="Stock">
+        <p className="text-sm text-muted-foreground">
+          {jars(taken)} put back in stock {formatOrderTime(order.stock_returned_at)}.
+        </p>
+      </Section>
+    );
+  }
+  return (
+    <Section title="Stock">
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          This order took {jars(taken)} off your stock counts. A cancel or refund doesn&apos;t
+          put them back. If the order is off and the jars can still be sold, put them back here.
+        </p>
+        <PutJarsBack orderId={order.id} orderNumber={order.order_number} jars={taken} demo={demo} />
+      </div>
+    </Section>
+  );
+}
+
 /** The steps done so far, oldest first. */
 function History({ order }: { order: Order }) {
   const steps: [string, string | null][] = [
@@ -673,6 +705,7 @@ export function OrderDetail({
               <Emails emails={emails} />
             </div>
           </Section>
+          <Stock order={order} items={items} demo={demo} />
           {isShipping && (
             <Section title="Tracking">
               <OrderTrackingForm

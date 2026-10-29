@@ -9,7 +9,8 @@
  * goes wrong, so Jesse sees what happened instead of a crash.
  *
  * Admins may also say what a part refund was for (saveRefundFor), which
- * fills in that refund's jars, fees and tax for the tax report.
+ * fills in that refund's jars, fees and tax for the tax report, and put an
+ * order's jars back on the stock counts (putJarsBack).
  *
  * A step that has a customer email (ready, out for delivery, shipped,
  * delivered, cancelled) sends it after the step is saved. The email never
@@ -17,7 +18,7 @@
  */
 
 import { after } from "next/server";
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireAuthAction } from "@/lib/supabase/auth-guard";
 import {
@@ -291,4 +292,34 @@ export async function saveRefundFor(
   revalidateOrder(refund.order_id);
   revalidatePath("/admin/sales/tax");
   return {};
+}
+
+/**
+ * Add an order's jars back to the stock counts: what checkout took off,
+ * exactly once. Cancelling or refunding an order doesn't do this by itself,
+ * because Jesse may have thrown the jars out.
+ */
+export async function putJarsBack(id: string): Promise<ActionResult & { returned?: number }> {
+  await requireAuthAction();
+  if (!isOrderId(id)) return { error: NOT_FOUND };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("admin_return_order_stock", { p_order_id: id });
+  if (error) return { error: NOT_SAVED };
+
+  const result = data as {
+    status: "returned" | "already" | "not_taken" | "not_found";
+    products?: { returned: number }[];
+  };
+  if (result.status === "not_found") return { error: NOT_FOUND };
+  if (result.status === "already") return { error: "These jars were already put back." };
+  if (result.status === "not_taken") {
+    return { error: "This order never took jars off the stock counts, so there's nothing to put back." };
+  }
+
+  revalidateOrder(id);
+  // The product pages show sold out and "Only N left" from the counts.
+  revalidatePath("/admin/products");
+  revalidateTag("products", { expire: 0 });
+  return { returned: (result.products ?? []).reduce((sum, p) => sum + p.returned, 0) };
 }
