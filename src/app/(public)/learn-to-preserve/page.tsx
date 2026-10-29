@@ -6,7 +6,12 @@ import { Check, BookOpen, Clock, Users, DollarSign } from "lucide-react";
 import { RichTextContent } from "@/components/ui/rich-text-content";
 import Link from "next/link";
 import { CourseJsonLd } from "@/components/seo/JsonLd";
+import { UPCOMING_CLASSES_ID, UpcomingClasses } from "@/components/classes/UpcomingClasses";
+import { getUpcomingClassSessions } from "@/lib/classes/sessions";
 import type { Metadata } from "next";
+
+// Build the page on every visit so the seats left are always current.
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Take a Class",
@@ -20,7 +25,8 @@ export const metadata: Metadata = {
 };
 
 export default async function LearnToPreservePage() {
-  const classInfo = await getClassInfo();
+  const [classInfo, sessions] = await Promise.all([getClassInfo(), getUpcomingClassSessions()]);
+  const hasSessions = (sessions?.length ?? 0) > 0;
 
   return (
     <>
@@ -77,6 +83,8 @@ export default async function LearnToPreservePage() {
           ))}
         </div>
 
+        <UpcomingClasses sessions={sessions} />
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           {/* What You'll Learn */}
           <div className="bg-card border border-brand-brown/20 rounded-xl p-8">
@@ -123,14 +131,14 @@ export default async function LearnToPreservePage() {
             Ready to Learn the Art of the Brine?
           </h2>
           <p className="text-brand-cream/60 text-lg mb-8 max-w-xl mx-auto">
-            Only {classInfo.maxStudents} spots per class — small enough that you
+            Only {classInfo.maxStudents} spots per class: small enough that you
             actually learn something, big enough to have a good time doing it.
           </p>
           <Link
-            href="/contact?subject=class"
+            href={hasSessions ? `#${UPCOMING_CLASSES_ID}` : "/contact?subject=class"}
             className="inline-flex items-center px-8 py-4 bg-brand-orange text-white text-lg font-semibold rounded-full hover:bg-brand-orange/90 transition-colors"
           >
-            Book Your Spot — ${classInfo.price}
+            {hasSessions ? "Book Your Spot" : "Ask About the Next Class"}
           </Link>
           <p className="mt-4 text-sm text-brand-cream/40">
             Questions before you commit? Hit us at bigsexysbrineco@gmail.com

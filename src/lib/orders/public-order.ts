@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createServiceClient } from "@/lib/supabase/server";
+import type { ClassBooking, ClassSession } from "@/types/classes";
 import type { Order, OrderItem } from "@/types/orders";
 
 /**
@@ -61,8 +62,25 @@ type OrderRow = Pick<Order, (typeof ORDER_COLUMNS)[number]>;
 
 export type PublicOrderItem = Pick<OrderItem, (typeof ITEM_COLUMNS)[number]>;
 
+/** For a class order: the seats and the class date they are for. */
+export type PublicClassBooking = Pick<ClassBooking, "seats" | "cancelled_at"> & {
+  session: Pick<ClassSession, "starts_at" | "ends_at" | "location_name" | "location_address"> | null;
+};
+
 /** What the order page gets. The order's database id stays here. */
-export type PublicOrder = Omit<OrderRow, "id"> & { items: PublicOrderItem[] };
+export type PublicOrder = Omit<OrderRow, "id"> & {
+  items: PublicOrderItem[];
+  /** Set only for class orders (fulfillment_type "class"). */
+  classBooking: PublicClassBooking | null;
+};
+
+const CLASS_BOOKING_COLUMNS =
+  "seats, cancelled_at, class_sessions(starts_at, ends_at, location_name, location_address)";
+
+type ClassBookingRow = Pick<ClassBooking, "seats" | "cancelled_at"> & {
+  // One session per booking. Supabase may send it as an object or a list of one.
+  class_sessions: PublicClassBooking["session"] | NonNullable<PublicClassBooking["session"]>[];
+};
 
 /**
  * Checkout makes tokens of 48 lowercase hex characters. Allow a little room
@@ -104,5 +122,30 @@ export async function getPublicOrder(token: string): Promise<PublicOrder | null>
     throw new Error("Could not load order items");
   }
 
-  return { ...order, items: (items ?? []) as unknown as PublicOrderItem[] };
+  const classBooking = order.fulfillment_type === "class" ? await getClassBooking(orderId) : null;
+
+  return { ...order, items: (items ?? []) as unknown as PublicOrderItem[], classBooking };
+}
+
+/**
+ * The booking behind a class order. Read only for class orders, so jar
+ * orders make the same queries as before. class_bookings.order_id is
+ * unique, so there is at most one.
+ */
+async function getClassBooking(orderId: string): Promise<PublicClassBooking | null> {
+  const supabase = await createServiceClient();
+  const { data, error } = await supabase
+    .from("class_bookings")
+    .select(CLASS_BOOKING_COLUMNS)
+    .eq("order_id", orderId)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Order page: could not load class booking", error.message);
+    throw new Error("Could not load class booking");
+  }
+  if (!data) return null;
+  const row = data as unknown as ClassBookingRow;
+  const session = Array.isArray(row.class_sessions) ? (row.class_sessions[0] ?? null) : row.class_sessions;
+  return { seats: row.seats, cancelled_at: row.cancelled_at, session };
 }

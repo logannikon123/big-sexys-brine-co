@@ -3,7 +3,9 @@
 // enforces: no returns, the 72-hour window to report a problem, and
 // cancelling only until the order is packed or out for delivery. This page
 // is a plain-English starting point, not legal advice. When the wording
-// changes, change TERMS_VERSION in src/lib/checkout/pay.ts too.
+// changes, change TERMS_VERSION in src/lib/checkout/pay.ts too. The
+// "Classes" section shows the class policy from src/lib/classes/format.ts;
+// when it changes, change CLASS_TERMS_VERSION in src/lib/classes/book.ts.
 import {
   POLICY_EMAIL,
   PolicyLink,
@@ -11,10 +13,11 @@ import {
   PolicyPage,
   PolicySection,
 } from "@/components/legal/PolicyPage";
+import { CLASS_POLICY_TEXT } from "@/lib/classes/format";
 import type { Metadata } from "next";
 
 const description =
-  "Big Sexy's Brine Co. refund and cancellation policy: what to do if an order arrives damaged or wrong, and how to cancel an order.";
+  "Big Sexy's Brine Co. refund and cancellation policy: what to do if an order arrives damaged or wrong, how to cancel an order, and how class refunds work.";
 
 export const metadata: Metadata = {
   title: "Refunds and Cancellations",
@@ -74,6 +77,15 @@ export default function RefundsPage() {
           Now and then we may not be able to fill an order, for example if a
           jar sells out. If that happens we will tell you and refund you in
           full for anything we can&apos;t send.
+        </p>
+      </PolicySection>
+
+      <PolicySection title="Classes">
+        <p>{CLASS_POLICY_TEXT}</p>
+        <p>
+          To cancel a class booking or send a friend in your place, email{" "}
+          <PolicyLink href={`mailto:${POLICY_EMAIL}`}>{POLICY_EMAIL}</PolicyLink>{" "}
+          with your booking number.
         </p>
       </PolicySection>
 

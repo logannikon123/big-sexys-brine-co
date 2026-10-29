@@ -90,6 +90,13 @@ export const quoteInputSchema = z.object({
       "Each product can appear only once in the cart."
     ),
   fulfillment: fulfillmentSchema,
+  /** A one-time code from a class booking, worth a percentage off the jars. */
+  discountCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z0-9-]{6,32}$/, "That discount code doesn't look right. Check it and try again.")
+    .optional(),
 });
 
 export type QuoteInput = z.infer<typeof quoteInputSchema>;

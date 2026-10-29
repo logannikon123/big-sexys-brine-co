@@ -9,6 +9,7 @@ import {
   Mail,
   Package,
   CalendarDays,
+  CalendarCheck,
   MapPin,
   MessageSquareQuote,
   GraduationCap,
@@ -38,6 +39,7 @@ const navItems = [
   { href: "/admin/retail", label: "Retail locations", icon: MapPin },
   { href: "/admin/testimonials", label: "Testimonials", icon: MessageSquareQuote },
   { href: "/admin/class", label: "Class Info", icon: GraduationCap },
+  { href: "/admin/classes", label: "Class sessions", icon: CalendarCheck },
   { href: "/admin/gallery", label: "Gallery", icon: Images },
   { href: "/admin/banner", label: "Home banner", icon: Megaphone },
   { href: "/admin/store", label: "Store settings", icon: Store },
@@ -58,7 +60,8 @@ export function AdminSidebar() {
 
   const isActive = (href: string) => {
     if (href === "/admin") return pathname === "/admin";
-    return pathname.startsWith(href);
+    // Match whole path parts, so /admin/class doesn't light up on /admin/classes.
+    return pathname === href || pathname.startsWith(`${href}/`);
   };
 
   const nav = (

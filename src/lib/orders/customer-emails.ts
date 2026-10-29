@@ -41,7 +41,8 @@ export function emailKindForStep(step: OrderStatus, type: FulfillmentType): Orde
       kind = "shipped";
       break;
     case "fulfilled":
-      kind = type === "pickup" ? null : "delivered";
+      // Nothing to say after pickup or a class: the customer was there.
+      kind = type === "pickup" || type === "class" ? null : "delivered";
       break;
     case "cancelled":
       kind = "cancelled";
@@ -168,6 +169,15 @@ export function buildStepEmail(
         "If anything is wrong with it, reply to this email and we'll make it right.",
       ]);
     case "cancelled":
+      if (order.fulfillment_type === "class") {
+        return letter(order, options, `Your class booking #${n} is cancelled`, [
+          `We cancelled your Learn to Preserve booking #${n}.`,
+          "",
+          order.refunded_cents >= order.total_cents && order.total_cents > 0
+            ? `We refunded your payment of ${formatPrice(order.total_cents)} in full. ${BANK_NOTE}`
+            : "If a refund is due, it goes back to your card, and we'll email you when we send it.",
+        ]);
+      }
       return letter(order, options, `Your order #${n} is cancelled`, [
         `We cancelled your order #${n}.`,
         "",

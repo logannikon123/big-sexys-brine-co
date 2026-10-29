@@ -202,7 +202,8 @@ export type QuoteErrorCode =
   | "address_ambiguous"
   | "address_service_down"
   | "out_of_delivery_area"
-  | "state_not_shipped";
+  | "state_not_shipped"
+  | "bad_discount_code";
 
 export interface QuoteError {
   ok: false;
@@ -247,6 +248,19 @@ function publicClient() {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY!,
     { auth: { persistSession: false }, global: { fetch: noStoreFetch } }
   );
+}
+
+/**
+ * How much a discount code takes off, in percent, or null when it can't be
+ * used (unknown, used by another order, not started or expired). Codes are
+ * private, so they're read with the service role key. Throws when the
+ * database can't be read.
+ */
+async function discountPercent(code: string): Promise<number | null> {
+  const supabase = await createServiceClient();
+  const { data, error } = await supabase.rpc("discount_code_percent", { p_code: code });
+  if (error) throw new Error(error.message);
+  return typeof data === "number" && data > 0 && data <= 100 ? data : null;
 }
 
 interface ProductRow {
@@ -539,6 +553,23 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
   const jarCount = lines.reduce((sum, line) => sum + line.qty, 0);
   const warnings: string[] = [];
 
+  // A class discount code takes a percentage off the jars only, never the
+  // fees. Tax is charged on the jars after the discount.
+  let discountCents = 0;
+  if (input.discountCode) {
+    let percent: number | null;
+    try {
+      percent = await discountPercent(input.discountCode);
+    } catch (error) {
+      console.error("Quote: couldn't check a discount code:", error instanceof Error ? error.message : "unknown error");
+      return fail("unavailable", "We couldn't check your discount code right now. Try again in a few minutes, or remove the code.");
+    }
+    if (percent === null) {
+      return fail("bad_discount_code", "That discount code isn't valid. It may be used already or expired. Check it, or remove it.");
+    }
+    discountCents = Math.round((subtotalCents * percent) / 100);
+  }
+
   let fulfillment: Quote["fulfillment"];
   let fees: Fees = NO_FEES;
   let taxQuery: FoodTaxQuery | null;
@@ -673,8 +704,7 @@ export async function getQuote(input: QuoteInput, now: Date = new Date()): Promi
     taxQuery = geo.ok ? { placeGeoid: geo.placeGeoid, countyFips: geo.countyFips } : null;
   }
 
-  const { taxCents, tax, taxParts } = await quoteTax(taxQuery, subtotalCents);
-  const discountCents = 0;
+  const { taxCents, tax, taxParts } = await quoteTax(taxQuery, subtotalCents - discountCents);
   const totalCents =
     subtotalCents +
     fees.deliveryFeeCents +

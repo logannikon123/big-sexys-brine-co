@@ -45,6 +45,8 @@ async function loadPages(columns: string, filter: Filter) {
     const { data, error } = await filter(supabase.from("orders").select(columns))
       // Orders with no Square system recorded are not tests, so keep them.
       .or("square_environment.is.null,square_environment.neq.sandbox")
+      // Class bookings aren't food and pay no food tax. The Sales page has them.
+      .neq("fulfillment_type", "class")
       .order("id", { ascending: true })
       .range(from, from + PAGE_SIZE - 1);
     if (error) return { rows: null, error: error.message };
